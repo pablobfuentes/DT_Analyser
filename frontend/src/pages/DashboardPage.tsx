@@ -5,7 +5,7 @@ import { fetchDashboard } from '../api/dashboard';
 import type { DashboardData, DashboardFiltersState } from '../types/dashboard';
 import { defaultFilters, filtersToQueryParams, parseFiltersFromUrl } from '../utils/dates';
 import { DashboardFiltersBar } from '../components/dashboard/DashboardFilters';
-import { CumulativePnlChart } from '../components/dashboard/CumulativePnlChart';
+import { PortfolioValueChart } from '../components/dashboard/PortfolioValueChart';
 import { DailyResultsTable } from '../components/dashboard/DailyResultsTable';
 import { RecentTradesTable } from '../components/dashboard/RecentTrades';
 import { CalendarHeatmap } from '../components/dashboard/CalendarHeatmap';
@@ -56,19 +56,19 @@ export function DashboardPage() {
 
   const handleFilterChange = (f: DashboardFiltersState) => setFilters(f);
 
-  const chartSeries = useMemo(() => {
-    if (!data?.cumulative?.length) return [];
-    return data.cumulative.slice(-30);
-  }, [data]);
+  const startingCapital = data?.equity.account_starting_equity ?? data?.equity.starting_equity ?? null;
+  const portfolioValue = data?.equity.current_realized_equity ?? null;
+  const periodReturnPct = data?.equity.realized_return_pct ?? null;
 
-  const monthReturnPct = data?.equity.realized_return_pct ?? null;
   const tradingDays = data?.secondary.trading_days || 0;
   const dailyAvgPct =
-    monthReturnPct != null && tradingDays > 0 && !Number.isNaN(parseMoney(monthReturnPct))
-      ? (parseMoney(monthReturnPct) / tradingDays).toFixed(2)
+    periodReturnPct != null && tradingDays > 0 && !Number.isNaN(parseMoney(periodReturnPct))
+      ? (parseMoney(periodReturnPct) / tradingDays).toFixed(2)
       : null;
   const avgDailyTrades =
     data && tradingDays > 0 ? (data.summary.trades / tradingDays).toFixed(1) : '—';
+
+  const equitySeries = useMemo(() => data?.equity_series ?? [], [data]);
 
   return (
     <div>
@@ -88,14 +88,23 @@ export function DashboardPage() {
             <div className="dashboard-hero">
               <div className="metric-card dashboard-hero-main">
                 <div className="metric-label">Portfolio value</div>
-                <div className={`metric-value ${pnlClass(data.equity.current_realized_equity)}`}>
-                  {data.equity.available
-                    ? formatMoney(data.equity.current_realized_equity)
-                    : formatMoney(data.summary.net_pnl, true)}
+                <div className="portfolio-value-row">
+                  <span className="metric-value">
+                    {data.equity.available && portfolioValue != null
+                      ? formatMoney(portfolioValue)
+                      : '—'}
+                  </span>
+                  {data.equity.available && periodReturnPct != null ? (
+                    <span className={`portfolio-change ${pnlClass(periodReturnPct)}`}>
+                      {formatPercent(periodReturnPct)}
+                    </span>
+                  ) : (
+                    <span className="portfolio-change neutral">Set equity on Accounts</span>
+                  )}
                 </div>
-                <div className={`metric-sub ${pnlClass(monthReturnPct)}`}>
-                  {monthReturnPct != null ? `${formatPercent(monthReturnPct)} this period` : 'Set starting equity for % return'}
-                </div>
+                {data.equity.available && startingCapital != null && (
+                  <div className="metric-sub">Starting {formatMoney(startingCapital)}</div>
+                )}
               </div>
               <MetricCard
                 label="Daily avg % change"
@@ -106,8 +115,11 @@ export function DashboardPage() {
               <MetricCard label="Win rate" value={formatPercent(data.summary.win_rate)} />
             </div>
 
-            <div className="section-title">Last 30 trading days</div>
-            <CumulativePnlChart data={chartSeries} />
+            <div className="section-title">Portfolio — last 30 trading days</div>
+            <PortfolioValueChart
+              equitySeries={equitySeries}
+              startingEquity={startingCapital}
+            />
 
             <div className="section-title">Daily results</div>
             <DailyResultsTable rows={data.daily} />

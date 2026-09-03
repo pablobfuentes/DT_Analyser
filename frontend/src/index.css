@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme='dark'] {
   --bg-primary: #0f1419;
   --bg-secondary: #1a1f26;
   --bg-card: #1e2530;
@@ -12,6 +13,25 @@
   --auto: #d2a8ff;
   --accent: #539bf5;
   --sidebar-width: 200px;
+  --theme-toggle-bg: #243041;
+  --theme-toggle-border: #3a4a5c;
+}
+
+[data-theme='light'] {
+  --bg-primary: #f4f7fb;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --border: #d5dde8;
+  --text-primary: #152033;
+  --text-secondary: #5b6b82;
+  --profit: #0f9f6e;
+  --loss: #d64545;
+  --neutral: #5b6b82;
+  --manual: #2f6fed;
+  --auto: #7a5af8;
+  --accent: #e85d4c;
+  --theme-toggle-bg: #ffffff;
+  --theme-toggle-border: #d5dde8;
 }
 
 * {
@@ -39,6 +59,27 @@ a:hover {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  position: relative;
+}
+
+.theme-toggle {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 50;
+  background: var(--theme-toggle-bg);
+  border: 1px solid var(--theme-toggle-border);
+  color: var(--text-primary);
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(15, 20, 25, 0.12);
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .app-sidebar {
@@ -65,6 +106,10 @@ a:hover {
   letter-spacing: 0.02em;
 }
 
+[data-theme='light'] .app-sidebar .brand {
+  color: var(--accent);
+}
+
 .app-sidebar a {
   color: var(--text-secondary);
   font-weight: 500;
@@ -76,13 +121,18 @@ a:hover {
 
 .app-sidebar a:hover {
   color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(127, 127, 127, 0.08);
   text-decoration: none;
 }
 
 .app-sidebar a.active {
   color: var(--text-primary);
-  background: rgba(83, 155, 245, 0.15);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+[data-theme='light'] .app-sidebar a.active {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .app-main {
@@ -91,6 +141,30 @@ a:hover {
   padding: 1rem 1.25rem 2rem;
   width: 100%;
   max-width: none;
+}
+
+.portfolio-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.portfolio-value-row .metric-value {
+  font-size: 2rem;
+}
+
+.portfolio-change {
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 0.8fr;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .card {
@@ -150,17 +224,6 @@ a:hover {
   grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
   gap: 1.25rem;
   align-items: start;
-}
-
-.dashboard-hero {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 0.8fr;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.dashboard-hero .metric-value {
-  font-size: 1.75rem;
 }
 
 .dashboard-hero-main .metric-value {

@@ -57,11 +57,19 @@ def build_advanced_analytics(db: Session, filters: "DashboardFilters", rows: lis
 
     period_baseline = baseline.get("baseline_equity")
     chart_equity = []
-    for p in pnl_series:
-        point = dict(p)
-        if baseline["starting_equity_available"] and period_baseline is not None:
-            point["equity"] = decimal_str(Decimal(p["cumulative_pnl"]) + period_baseline)
-        chart_equity.append(point)
+    if baseline["starting_equity_available"] and equity_series:
+        for p in equity_series:
+            chart_equity.append(
+                {
+                    "date": p.get("date"),
+                    "exit_time_utc": p.get("exit_time_utc"),
+                    "equity": p.get("equity"),
+                    "cumulative_pnl": None,
+                }
+            )
+    else:
+        for p in pnl_series:
+            chart_equity.append(dict(p))
 
     warnings = []
     missing_r = len(rows) - len(r_values)

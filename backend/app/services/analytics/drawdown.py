@@ -50,29 +50,54 @@ def pre_period_realized_pnl(db: Session, filters: "DashboardFilters") -> Decimal
 def equity_baseline(db: Session, filters: "DashboardFilters") -> dict:
     """
     Returns baseline for filtered-period equity curve.
-    starting_equity_available: all selected accounts have starting_equity
-    baseline_equity: sum(starting) + pre_period_pnl (when equity available)
+    starting_equity_available: at least one selected account has starting_equity
+    baseline_equity: sum(starting of funded accounts) + pre_period_pnl for those accounts
     baseline_pnl: pre_period_pnl for P&L-only drawdown
     """
     accounts = _accounts_for_filters(db, filters)
-    pre_pnl = pre_period_realized_pnl(db, filters)
-
-    missing = [a for a in accounts if a.starting_equity is None]
-    if missing or not accounts:
+    funded = [a for a in accounts if a is not None and a.starting_equity is not None]
+    if not funded:
         return {
             "starting_equity_available": False,
             "baseline_equity": None,
-            "baseline_pnl": pre_pnl,
+            "baseline_pnl": pre_period_realized_pnl(db, filters),
             "starting_equity_sum": None,
         }
 
-    starting = sum(a.starting_equity for a in accounts)
+    funded_ids = {a.id for a in funded}
+    # Pre-period P&L only for accounts that participate in the equity book.
+    if filters.account_id:
+        pre_pnl = pre_period_realized_pnl(db, filters)
+    else:
+        pre_pnl = _pre_period_pnl_for_accounts(db, filters, funded_ids)
+
+    starting = sum((a.starting_equity for a in funded), Decimal("0"))
     return {
         "starting_equity_available": True,
         "baseline_equity": starting + pre_pnl,
         "baseline_pnl": pre_pnl,
         "starting_equity_sum": starting,
     }
+
+
+def _pre_period_pnl_for_accounts(db: Session, filters: "DashboardFilters", account_ids: set[int]) -> Decimal:
+    if not filters.start_date or not account_ids:
+        return Decimal("0")
+    q = (
+        db.query(Trade)
+        .filter(
+            Trade.status == "CLOSED",
+            Trade.exit_time_utc.isnot(None),
+            Trade.account_id.in_(account_ids),
+        )
+    )
+    utc_start, _ = utc_bounds_for_ny_range(filters.start_date, filters.start_date)
+    if utc_start:
+        q = q.filter(Trade.exit_time_utc < utc_start)
+    total = Decimal("0")
+    for t in q.all():
+        total += effective_realized_pnl(t).pnl
+    return total
 
 
 def build_equity_series(rows: list[dict], baseline: dict) -> tuple[list[dict], list[dict], list[dict]]:

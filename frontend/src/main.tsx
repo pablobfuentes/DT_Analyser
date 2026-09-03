@@ -19,7 +19,10 @@ import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
 import { ReviewHistoryPage } from './pages/ReviewHistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ApiStatusBanner } from './components/ApiStatusBanner';
+import { ThemeToggle, applyTheme, getStoredTheme } from './components/ThemeToggle';
 import './index.css';
+
+applyTheme(getStoredTheme());
 
 function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
   return (
@@ -34,6 +37,7 @@ function App() {
     <BrowserRouter>
       <ApiStatusBanner />
       <div className="app-shell">
+        <ThemeToggle />
         <nav className="app-sidebar">
           <div className="brand">DT Analyser</div>
           <NavItem to="/">Dashboard</NavItem>
