@@ -1,0 +1,3 @@
+Symbol,Side,Type,Quantity,Fill price,Status,Closing time,Order ID,Entry Time
+NCRA,Buy,Market,100,4.00,Filled,2024-02-01 09:30:00-05:00,1001,2024-02-01 09:29:00-05:00
+NCRA,Sell,Market,100,4.20,Filled,2024-02-01 10:00:00-05:00,1002,2024-02-01 09:59:00-05:00

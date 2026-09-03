@@ -1,0 +1,4 @@
+Symbol,Side,Quantity,Price,Date/Time
+VALID,Buy,100,10.00,2024-04-01 09:30:00-05:00
+,Buy,invalid,abc,2024-04-01 09:31:00-05:00
+VALID,Sell,100,11.00,2024-04-01 10:00:00-05:00

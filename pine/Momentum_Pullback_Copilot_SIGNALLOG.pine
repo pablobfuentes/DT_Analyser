@@ -1,0 +1,2808 @@
+//@version=6
+indicator(
+     "Momentum Pullback Copilot v0.3.3.1 SIGNALLOG",
+     overlay = true,
+     max_labels_count = 500
+)
+
+
+// ============================================================
+// MOMENTUM PULLBACK COPILOT v0.3.3.1 — LONG STRATEGY + OPENING FADE RESEARCH
+// Primary timeframe: 1 minute
+//
+// PURPOSE:
+// You select the stock manually.
+// The script attempts to recognize:
+//
+// SCANNING
+//   -> IMPULSE
+//   -> PULLBACK
+//   -> ARMED
+//   -> ENTRY
+//   -> IN TRADE
+//   -> EXIT
+//
+// IMPORTANT:
+// The "impulse" definition is an initial quantitative heuristic.
+// It is NOT explicitly defined in the source strategy.
+// We will tune it using real examples.
+// ============================================================
+
+
+// ============================================================
+// 1. INPUTS
+// ============================================================
+
+// ----- Trading session -----
+string groupSession = "1. Trading Session"
+
+useSessionFilter = input.bool(
+     true,
+     "Only recognize setups during session",
+     group = groupSession
+)
+
+tradeSession = input.session(
+     "0700-1700",
+     "Trading session (New York time)",
+     group = groupSession
+)
+
+
+// ----- Impulse detection -----
+string groupImpulse = "2. Impulse Detection"
+
+impulseLookback = input.int(
+     5,
+     "Impulse lookback bars",
+     minval = 2,
+     maxval = 60,
+     group = groupImpulse
+)
+
+minImpulsePct = input.float(
+     4.0,
+     "Minimum impulse move %",
+     minval = 0.5,
+     step = 0.5,
+     group = groupImpulse
+)
+
+volumeAverageLength = input.int(
+     20,
+     "Average volume length",
+     minval = 5,
+     group = groupImpulse
+)
+
+impulseVolumeFactor = input.float(
+     1.5,
+     "Impulse volume vs average",
+     minval = 0.5,
+     step = 0.1,
+     group = groupImpulse
+)
+
+maxImpulseBars = input.int(
+     8,
+     "Maximum bars before pullback must begin",
+     minval = 2,
+     maxval = 20,
+     group = groupImpulse
+)
+
+
+// ----- Pullback rules -----
+string groupPullback = "3. Pullback Validation"
+
+maxRetracementPct = input.float(
+     50.0,
+     "Maximum retracement %",
+     minval = 10,
+     maxval = 90,
+     step = 1,
+     group = groupPullback
+)
+
+minPullbackBars = input.int(
+     1,
+     "Minimum pullback candles",
+     minval = 1,
+     maxval = 5,
+     group = groupPullback
+)
+
+maxPullbackBars = input.int(
+     5,
+     "Maximum pullback candles",
+     minval = 1,
+     maxval = 15,
+     group = groupPullback
+)
+
+volumeStructureLookback = input.int(
+     6,
+     "Green vs red volume lookback",
+     minval = 2,
+     maxval = 20,
+     group = groupPullback
+)
+
+useToppingTailFilter = input.bool(
+     true,
+     "Reject pullback with large topping tail",
+     group = groupPullback
+)
+
+maxToppingTailRatio = input.float(
+     0.50,
+     "Topping-tail rejection threshold",
+     minval = 0.20,
+     maxval = 0.90,
+     step = 0.05,
+     group = groupPullback
+)
+
+
+// ----- 5-minute context -----
+string groupContext = "4. Higher-Timeframe Context"
+
+contextTimeframe = input.timeframe(
+     "5",
+     "Context timeframe",
+     group = groupContext
+)
+
+requireContextBullish = input.bool(
+     false,
+     "Require bullish 5m context for entry",
+     tooltip = "OFF initially. The dashboard will still show 5m context.",
+     group = groupContext
+)
+
+
+// ----- Portfolio sizing / risk -----
+string groupRisk = "5. Position Sizing"
+
+accountEquity = input.float(
+     10000.0,
+     "Daily reference equity ($)",
+     minval = 100,
+     step = 100,
+     tooltip = "Set this once at the start of the trading day. Position sizing will not compound after each trade.",
+     group = groupRisk
+)
+
+baseRiskPct = input.float(
+     0.50,
+     "Base risk per trade (%)",
+     minval = 0.05,
+     maxval = 5.0,
+     step = 0.05,
+     group = groupRisk
+)
+
+maxPositionPct = input.float(
+     20.0,
+     "Maximum position value (% of account)",
+     minval = 1.0,
+     maxval = 100.0,
+     step = 1.0,
+     group = groupRisk
+)
+
+aRiskMultiplier = input.float(
+     0.75,
+     "A setup risk multiplier",
+     minval = 0.25,
+     maxval = 1.0,
+     step = 0.05,
+     tooltip = "A+ setups use 100% of base risk. A setups use this fraction. Setups below A are already blocked by the pattern engine.",
+     group = groupRisk
+)
+
+fullSizeRetracementPct = input.float(
+     35.0,
+     "A+ max retracement (%)",
+     minval = 10.0,
+     maxval = 50.0,
+     step = 1.0,
+     tooltip = "A+ is intentionally stricter than the strategy's absolute 50% pullback limit.",
+     group = groupRisk
+)
+
+fullSizeImpulseMultiple = input.float(
+     1.25,
+     "A+ impulse strength vs minimum",
+     minval = 1.0,
+     maxval = 3.0,
+     step = 0.05,
+     tooltip = "Example: with a 4% minimum impulse and 1.25x here, A+ requires at least a 5% impulse.",
+     group = groupRisk
+)
+
+slippageAllowance = input.float(
+     0.02,
+     "Slippage allowance per share",
+     minval = 0,
+     step = 0.01,
+     group = groupRisk
+)
+
+rewardMultiple = input.float(
+     2.0,
+     "Reference reward multiple",
+     minval = 1,
+     step = 0.25,
+     group = groupRisk
+)
+
+
+// ----- Exit detection -----
+string groupExit = "6. Chart Exit Signals"
+
+exitTailRatio = input.float(
+     0.45,
+     "Exit: topping-tail ratio",
+     minval = 0.20,
+     maxval = 0.90,
+     step = 0.05,
+     group = groupExit
+)
+
+reversalATRMultiplier = input.float(
+     1.25,
+     "Exit: sharp reversal ATR multiplier",
+     minval = 0.5,
+     step = 0.05,
+     group = groupExit
+)
+
+slowdownLookback = input.int(
+     5,
+     "Exit: volume slowdown lookback",
+     minval = 2,
+     maxval = 20,
+     group = groupExit
+)
+
+slowdownFactor = input.float(
+     0.60,
+     "Exit: volume slowdown threshold",
+     minval = 0.10,
+     maxval = 1.00,
+     step = 0.05,
+     group = groupExit
+)
+
+cooldownBars = input.int(
+     2,
+     "Bars before looking for next setup",
+     minval = 0,
+     maxval = 20,
+     group = groupExit
+)
+
+
+// ----- Opening Fade short research -----
+string groupShort = "7. Opening Fade - Research"
+
+enableOpeningFadeResearch = input.bool(
+     true,
+     "Show Opening Fade research signals",
+     tooltip = "Research only. Does not place orders or change the long strategy.",
+     group = groupShort
+)
+
+shortMinGapPct = input.float(
+     2.0,
+     "Minimum 7:00 ET gap vs prior close (%)",
+     minval = 0.5,
+     step = 0.5,
+     group = groupShort
+)
+
+shortMinPremarketMovePct = input.float(
+     4.0,
+     "Minimum premarket rally from 7:00 low (%)",
+     minval = 1.0,
+     step = 0.5,
+     group = groupShort
+)
+
+shortArmRetracementPct = input.float(
+     20.0,
+     "ARMED-1 retracement (%)",
+     minval = 5.0,
+     maxval = 50.0,
+     step = 1.0,
+     group = groupShort
+)
+
+shortTargetRetracementPct = input.float(
+     50.0,
+     "EXIT-1 target retracement (%)",
+     minval = 25.0,
+     maxval = 90.0,
+     step = 1.0,
+     group = groupShort
+)
+
+shortReversalRangeFactor = input.float(
+     1.5,
+     "Big red candle range vs average",
+     minval = 1.0,
+     maxval = 5.0,
+     step = 0.1,
+     group = groupShort
+)
+
+shortReversalVolumeFactor = input.float(
+     1.5,
+     "Big red candle volume vs average",
+     minval = 1.0,
+     maxval = 5.0,
+     step = 0.1,
+     group = groupShort
+)
+
+shortReversalCloseBottomPct = input.float(
+     30.0,
+     "Big red candle: close in bottom (%)",
+     minval = 10.0,
+     maxval = 50.0,
+     step = 5.0,
+     group = groupShort
+)
+
+shortNearHodPct = input.float(
+     5.0,
+     "Reversal must begin within % of HOD",
+     minval = 0.5,
+     maxval = 15.0,
+     step = 0.5,
+     group = groupShort
+)
+
+shortOpeningWindow = input.session(
+     "0930-1100",
+     "Opening Fade detection window (ET)",
+     group = groupShort
+)
+
+
+// ----- Display -----
+string groupDisplay = "8. Display"
+
+showEMA = input.bool(true, "Show EMA 9", group = groupDisplay)
+showVWAP = input.bool(true, "Show VWAP", group = groupDisplay)
+showDashboard = input.bool(true, "Show dashboard", group = groupDisplay)
+showImpulseMarkers = input.bool(true, "Show impulse markers", group = groupDisplay)
+
+
+// ----- Invisible trade log -----
+string groupRecorder = "9. Trade Log"
+
+recordTimezone = input.string(
+     "America/New_York",
+     "Trade log time zone",
+     tooltip = "Completed realtime signal trades are written automatically to Pine Logs. Nothing is added to the chart.",
+     group = groupRecorder
+)
+
+enableAnalyzerSignalLogs = input.bool(
+     true,
+     "Enable Analyzer Signal Logs",
+     tooltip = "Writes PINE_SIGNAL_EVENT lines to Pine Logs for Local Trader Analyzer import. Does not affect trading logic.",
+     group = groupRecorder
+)
+
+
+// ============================================================
+// 2. REQUIRE 1-MINUTE CHART
+// ============================================================
+
+if barstate.isfirst and timeframe.in_seconds() != 60
+    runtime.error(
+         "Momentum Pullback Copilot v0.3.3.1 Opening Fade Research must currently be used on a 1-minute chart."
+    )
+
+
+// ============================================================
+// 3. CORE INDICATORS
+// ============================================================
+
+ema9 = ta.ema(close, 9)
+vwapValue = ta.vwap(hlc3)
+
+averageVolume = ta.sma(volume, volumeAverageLength)
+
+// Calculate on every bar so the exit-volume comparison is stable
+// and Pine does not warn about conditional ta.sma() execution.
+slowdownVolumeAverage = ta.sma(volume, slowdownLookback)
+
+atr = ta.atr(14)
+averageCandleRange = ta.sma(high - low, volumeAverageLength)
+
+
+// ============================================================
+// 3B. TRADE LOG MARKET METRICS
+//
+// Gap here means the planned entry price versus prior daily close.
+// RVOL is current daily volume / prior 50-day average daily volume.
+// These values are frozen at the moment the entry signal occurs.
+// ============================================================
+
+priorDailyClose =
+     request.security(
+         syminfo.tickerid,
+         "D",
+         close[1],
+         lookahead = barmerge.lookahead_on
+     )
+
+currentDailyVolume =
+     request.security(
+         syminfo.tickerid,
+         "D",
+         volume
+     )
+
+avgDailyVolume50 =
+     request.security(
+         syminfo.tickerid,
+         "D",
+         ta.sma(volume, 50)[1],
+         lookahead = barmerge.lookahead_on
+     )
+
+currentDailyRVOL =
+     not na(avgDailyVolume50) and avgDailyVolume50 > 0
+         ? currentDailyVolume / avgDailyVolume50
+         : na
+
+
+// ============================================================
+// 4. SESSION FILTER
+// ============================================================
+
+inConfiguredSession =
+     not na(
+         time(
+             timeframe.period,
+             tradeSession,
+             "America/New_York"
+         )
+     )
+
+inSession =
+     not useSessionFilter or inConfiguredSession
+
+
+// ============================================================
+// 4B. OPENING FADE — RESEARCH STATE MACHINE
+//
+// Separate from the long strategy.
+//
+// 0 = WAITING / BUILDING PREMARKET CONTEXT
+// 1 = BIG RED REVERSAL SEEN
+// 2 = ARMED-1 (>= configured retracement)
+// 3 = ENTRY-1 ACTIVE
+// 4 = FINISHED FOR THE DAY
+//
+// Sequence:
+// gap -> premarket rally -> opening continuation -> big red candle
+// -> >=20% retracement -> below EMA9 + VWAP -> short research entry
+// -> 50% retracement target OR EMA9+VWAP reclaim -> research exit
+// ============================================================
+
+isShortPremarket =
+     not na(
+         time(
+             timeframe.period,
+             "0700-0929",
+             "America/New_York"
+         )
+     )
+
+isShortOpeningWindow =
+     not na(
+         time(
+             timeframe.period,
+             shortOpeningWindow,
+             "America/New_York"
+         )
+     )
+
+isShortSevenAMBar =
+     isShortPremarket and
+     not isShortPremarket[1]
+
+var int shortState = 0
+var float shortSevenOpen = na
+var float shortMorningLow = na
+var float shortPremarketHigh = na
+var float shortHOD = na
+var bool shortGapQualified = false
+var bool shortPremarketRallyQualified = false
+var bool shortOpeningContinuationSeen = false
+var float shortReversalLow = na
+var float shortResearchEntry = na
+var float shortResearchStop = na
+var float shortResearchTarget = na
+
+bool shortArmedEvent = false
+bool shortEntryEvent = false
+bool shortExitEvent = false
+
+// Reset this research pattern each trading day.
+if timeframe.change("D")
+    shortState := 0
+    shortSevenOpen := na
+    shortMorningLow := na
+    shortPremarketHigh := na
+    shortHOD := na
+    shortGapQualified := false
+    shortPremarketRallyQualified := false
+    shortOpeningContinuationSeen := false
+    shortReversalLow := na
+    shortResearchEntry := na
+    shortResearchStop := na
+    shortResearchTarget := na
+
+// Initialize at the first 7:00 ET bar.
+if enableOpeningFadeResearch and isShortSevenAMBar
+    shortState := 0
+    shortSevenOpen := open
+    shortMorningLow := low
+    shortPremarketHigh := high
+    shortHOD := high
+
+    float sevenGapPct =
+         not na(priorDailyClose) and priorDailyClose > 0
+             ? ((open - priorDailyClose) / priorDailyClose) * 100.0
+             : na
+
+    shortGapQualified :=
+         not na(sevenGapPct) and
+         sevenGapPct >= shortMinGapPct
+
+// Build premarket structure.
+if
+     enableOpeningFadeResearch and
+     isShortPremarket and
+     not na(shortSevenOpen)
+
+    shortMorningLow :=
+         na(shortMorningLow)
+             ? low
+             : math.min(shortMorningLow, low)
+
+    shortPremarketHigh :=
+         na(shortPremarketHigh)
+             ? high
+             : math.max(shortPremarketHigh, high)
+
+    shortHOD :=
+         na(shortHOD)
+             ? high
+             : math.max(shortHOD, high)
+
+    float premarketMovePct =
+         not na(shortMorningLow) and shortMorningLow > 0
+             ? ((shortPremarketHigh - shortMorningLow) / shortMorningLow) * 100.0
+             : 0.0
+
+    shortPremarketRallyQualified :=
+         premarketMovePct >= shortMinPremarketMovePct
+
+// During the opening window, track HOD and require that regular-hours
+// price actually pushes above the premarket high before fading.
+if
+     enableOpeningFadeResearch and
+     isShortOpeningWindow and
+     not na(shortPremarketHigh)
+
+    shortHOD :=
+         na(shortHOD)
+             ? high
+             : math.max(shortHOD, high)
+
+    if high > shortPremarketHigh
+        shortOpeningContinuationSeen := true
+
+// Current retracement of the 7:00-to-HOD morning impulse.
+float shortImpulseRange =
+     not na(shortHOD) and
+     not na(shortMorningLow)
+         ? shortHOD - shortMorningLow
+         : na
+
+float shortRetracementPct =
+     not na(shortImpulseRange) and
+     shortImpulseRange > 0
+         ? ((shortHOD - low) / shortImpulseRange) * 100.0
+         : na
+
+float shortTargetPrice =
+     not na(shortImpulseRange)
+         ? shortHOD -
+           shortImpulseRange *
+           (shortTargetRetracementPct / 100.0)
+         : na
+
+// Define the decisive bearish reversal candle objectively.
+float shortResearchCandleRange =
+     math.max(high - low, syminfo.mintick)
+
+float shortCloseFromLowPct =
+     shortResearchCandleRange > 0
+         ? ((close - low) / shortResearchCandleRange) * 100.0
+         : 100.0
+
+float shortDistanceFromHodPct =
+     not na(shortHOD) and shortHOD > 0
+         ? ((shortHOD - high) / shortHOD) * 100.0
+         : na
+
+bool shortBigRedReversal =
+     enableOpeningFadeResearch and
+     isShortOpeningWindow and
+     shortState == 0 and
+     shortGapQualified and
+     shortPremarketRallyQualified and
+     shortOpeningContinuationSeen and
+     close < open and
+     not na(averageCandleRange) and
+     shortResearchCandleRange >= averageCandleRange * shortReversalRangeFactor and
+     (
+         na(volume) or
+         na(averageVolume) or
+         volume >= averageVolume * shortReversalVolumeFactor
+     ) and
+     shortCloseFromLowPct <= shortReversalCloseBottomPct and
+     not na(shortDistanceFromHodPct) and
+     shortDistanceFromHodPct <= shortNearHodPct
+
+if shortBigRedReversal
+    shortState := 1
+    shortReversalLow := low
+
+// ARMED-1: the opening move has materially failed by at least 20%.
+if
+     enableOpeningFadeResearch and
+     shortState == 1 and
+     not na(shortRetracementPct) and
+     shortRetracementPct >= shortArmRetracementPct
+
+    shortState := 2
+    shortArmedEvent := true
+
+// ENTRY-1: fast confirmation — price is below BOTH EMA9 and VWAP.
+// We do not wait for a failed reclaim.
+if
+     enableOpeningFadeResearch and
+     shortState == 2 and
+     low < ema9 and
+     low < vwapValue
+
+    shortState := 3
+    shortEntryEvent := true
+    shortResearchEntry := math.min(close, math.min(ema9, vwapValue))
+    shortResearchStop := high
+    shortResearchTarget := shortTargetPrice
+
+// EXIT-1:
+// A) morning impulse reaches the configured retracement target, OR
+// B) bearish thesis fails by reclaiming BOTH EMA9 and VWAP.
+bool shortTargetHit =
+     shortState == 3 and
+     not na(shortResearchTarget) and
+     low <= shortResearchTarget
+
+bool shortBullishReclaim =
+     shortState == 3 and
+     close > ema9 and
+     close > vwapValue
+
+if
+     enableOpeningFadeResearch and
+     shortState == 3 and
+     (shortTargetHit or shortBullishReclaim)
+
+    shortState := 4
+    shortExitEvent := true
+
+
+// ============================================================
+// 5. GREEN VS RED VOLUME STRUCTURE
+//
+// This compares recent total green-candle volume against
+// recent total red-candle volume.
+// ============================================================
+
+greenVolumeScore =
+     ta.sma(
+         close >= open ? volume : 0.0,
+         volumeStructureLookback
+     )
+
+redVolumeScore =
+     ta.sma(
+         close < open ? volume : 0.0,
+         volumeStructureLookback
+     )
+
+volumeStructureBullish =
+     na(volume) or
+     greenVolumeScore > redVolumeScore
+
+
+// ============================================================
+// 6. CANDLE STRUCTURE
+// ============================================================
+
+candleRange = math.max(high - low, syminfo.mintick)
+
+upperWick =
+     high - math.max(open, close)
+
+upperWickRatio =
+     upperWick / candleRange
+
+toppingTail =
+     upperWickRatio >= maxToppingTailRatio
+
+
+// ============================================================
+// 7. NON-REPAINTING 5-MINUTE CONTEXT
+//
+// We intentionally use the PREVIOUS CONFIRMED HTF candle.
+// This is slightly delayed but stable.
+// ============================================================
+
+[contextClose, contextEMA9, contextVWAP] =
+     request.security(
+         syminfo.tickerid,
+         contextTimeframe,
+         [
+             close[1],
+             ta.ema(close, 9)[1],
+             ta.vwap(hlc3)[1]
+         ],
+         lookahead = barmerge.lookahead_on
+     )
+
+contextBullish =
+     contextClose > contextEMA9 and
+     contextClose > contextVWAP
+
+
+// ============================================================
+// 8. IMPULSE DETECTION
+//
+// IMPORTANT:
+// This is our initial heuristic:
+//
+// - local upward move >= minImpulsePct
+// - new local high
+// - green candle
+// - elevated volume
+// - above EMA9
+// - above VWAP
+//
+// We will tune this later.
+// ============================================================
+
+localImpulseLow =
+     ta.lowest(low, impulseLookback)
+
+localImpulseHigh =
+     ta.highest(high, impulseLookback)
+
+impulseMovePct =
+     localImpulseLow > 0
+         ? ((high - localImpulseLow) / localImpulseLow) * 100
+         : 0.0
+
+newLocalHigh =
+     high >= localImpulseHigh
+
+strongImpulseVolume =
+     na(volume) or
+     na(averageVolume) or
+     volume >= averageVolume * impulseVolumeFactor
+
+impulseCandidate =
+     inSession and
+     close > open and
+     newLocalHigh and
+     impulseMovePct >= minImpulsePct and
+     strongImpulseVolume and
+     close > ema9 and
+     close > vwapValue
+
+
+// ============================================================
+// 9. STATE MACHINE
+//
+// 0 = SCANNING
+// 1 = IMPULSE
+// 2 = PULLBACK
+// 3 = ARMED
+// 4 = IN TRADE
+// 5 = COOLDOWN
+// ============================================================
+
+var int state = 0
+
+var float impulseLow = na
+var float impulseHigh = na
+
+var int impulseStartBar = na
+
+var float pullbackLow = na
+var int pullbackBars = 0
+
+var bool structureBreached = false
+var bool toppingTailSeen = false
+
+var float entryLevel = na
+var float stopLevel = na
+
+var float tradeEntry = na
+var float tradeStop = na
+var float tradeTarget = na
+
+var int cooldownStartBar = na
+
+
+// ============================================================
+// 9B. INVISIBLE TRADE SNAPSHOTS + PINE LOG OUTPUT
+//
+// Nothing in this section is plotted or displayed on the chart.
+// When ENTRY fires, the entry conditions are frozen.
+// When EXIT fires, one tab-separated TRADE_RECORD is written to
+// Pine Logs automatically.
+//
+// IMPORTANT:
+// Pine records the SYSTEM SIGNAL, not the broker's actual fill.
+// ============================================================
+
+// Committed entry snapshot for an open trade.
+var int tradeEntryTime = na
+var int tradeShares = na
+var float tradeEntryRetracement = na
+var float tradeEntryGapPct = na
+var float tradeEntryRVOL = na
+var float tradeEntryImpulsePct = na
+var string tradeEntryQuality = ""
+var float tradeEntryAllowedRisk = na
+var float tradeEntryPositionValue = na
+var float tradeEntryExposurePct = na
+var bool tradeEntryContextBullish = false
+var bool tradeEntryAboveVWAP = false
+var bool tradeEntryAboveEMA9 = false
+var bool tradeEntryVolumeConfirmed = false
+var string tradeEntrySession = ""
+var string tradeSetupType = "First Pullback"
+
+// Convert an ET timestamp into the session bucket used by the Excel journal.
+f_session_label(int timestampValue) =>
+    int h = hour(timestampValue, "America/New_York")
+    int m = minute(timestampValue, "America/New_York")
+    string result =
+         h < 9 or (h == 9 and m < 30)
+             ? "Premarket"
+             : h == 9
+                 ? "09:30-10:00 ET"
+                 : h == 10 and m < 30
+                     ? "10:00-10:30 ET"
+                     : h == 10
+                         ? "10:30-11:00 ET"
+                         : h >= 11
+                             ? "11:00+ ET"
+                             : "Other"
+    result
+
+// One completed trade = one Excel-ready tab-separated line.
+f_record_text(
+     int entryTimeValue,
+     int exitTimeValue,
+     float entryPriceValue,
+     float exitPriceValue,
+     float stopPriceValue,
+     int sharesValue,
+     float gapPctValue,
+     float rvolValue,
+     float impulsePctValue,
+     string qualityValue,
+     float allowedRiskValue,
+     float positionValueValue,
+     float exposurePctValue,
+     float retracementValue,
+     bool contextBullishValue,
+     bool aboveVWAPValue,
+     bool aboveEMA9Value,
+     bool volumeConfirmedValue,
+     string sessionValue,
+     string setupValue,
+     string exitReasonValue
+) =>
+    float riskValue = entryPriceValue - stopPriceValue
+    float sizingRiskValue = riskValue + slippageAllowance
+    float target2RValue = entryPriceValue + riskValue * rewardMultiple
+    float rValue = riskValue > 0 ? (exitPriceValue - entryPriceValue) / riskValue : na
+    float holdMinutesValue = (exitTimeValue - entryTimeValue) / 60000.0
+    string dateText = str.format_time(entryTimeValue, "yyyy-MM-dd", recordTimezone)
+    string entryText = str.format_time(entryTimeValue, "HH:mm:ss", recordTimezone)
+    string exitText = str.format_time(exitTimeValue, "HH:mm:ss", recordTimezone)
+
+    "TRADE_RECORD\t" +
+     dateText + "\t" +
+     syminfo.ticker + "\t" +
+     setupValue + "\t" +
+     entryText + "\t" +
+     exitText + "\t" +
+     str.tostring(entryPriceValue, format.mintick) + "\t" +
+     str.tostring(exitPriceValue, format.mintick) + "\t" +
+     str.tostring(stopPriceValue, format.mintick) + "\t" +
+     str.tostring(sharesValue) + "\t" +
+     str.tostring(sizingRiskValue, "#.####") + "\t" +
+     str.tostring(target2RValue, format.mintick) + "\t" +
+     str.tostring(gapPctValue, "#.##") + "\t" +
+     str.tostring(rvolValue, "#.##") + "\t" +
+     str.tostring(impulsePctValue, "#.##") + "\t" +
+     qualityValue + "\t" +
+     str.tostring(allowedRiskValue, "#.##") + "\t" +
+     str.tostring(positionValueValue, "#.##") + "\t" +
+     str.tostring(exposurePctValue, "#.##") + "\t" +
+     str.tostring(retracementValue, "#.##") + "\t" +
+     (contextBullishValue ? "Bullish" : "Not Bullish") + "\t" +
+     (aboveVWAPValue ? "Yes" : "No") + "\t" +
+     (aboveEMA9Value ? "Yes" : "No") + "\t" +
+     (volumeConfirmedValue ? "Yes" : "No") + "\t" +
+     sessionValue + "\t" +
+     exitReasonValue + "\t" +
+     str.tostring(rValue, "#.##") + "\t" +
+     str.tostring(holdMinutesValue, "#.##")
+
+// A header is written once whenever the Pine script starts/restarts.
+if barstate.isfirst
+    log.info(
+         "RECORD_TYPE\tDate\tTicker\tSetup\tEntryTime\tExitTime\t" +
+         "SignalEntry\tSignalExit\tStop\tSuggestedShares\tRiskPerShare\tReference2R\t" +
+         "GapPct\tRVOL\tImpulsePct\tSetupQuality\tAllowedRisk\tPositionValue\tExposurePct\tRetracementPct\tContext5m\tAboveVWAP\tAboveEMA9\t" +
+         "VolumeConfirmed\tSession\tExitReason\tRMultiple\tHoldingMin"
+    )
+    if enableAnalyzerSignalLogs
+        log.info(
+             "PINE_SIGNAL_EVENT_HEADER\tSCHEMA_VERSION\tSIGNAL_ID\tSTRATEGY_KEY\tSTRATEGY_VERSION\tTICKER\tDIRECTION\tTIMEFRAME\tORIGIN\tEVENT_TYPE\tEVENT_TIME\tEVENT_TIME_MS\tEVENT_PRICE\tPLANNED_ENTRY\tPLANNED_STOP\tREFERENCE_2R\tSUGGESTED_SHARES\tSETUP_QUALITY\tALLOWED_RISK\tPLANNED_POSITION_VALUE\tPLANNED_EXPOSURE_PCT\tSIGNAL_GAP_PCT\tSIGNAL_RVOL\tIMPULSE_PCT\tRETRACEMENT_PCT\tCONTEXT_5M\tABOVE_VWAP\tABOVE_EMA9\tVOLUME_CONFIRMED\tSESSION\tEXIT_REASON"
+        )
+
+
+// ============================================================
+// 9C. ANALYZER PINE_SIGNAL_EVENT LOGGING (OBSERVE-ONLY)
+//
+// Writes tab-separated PINE_SIGNAL_EVENT rows for Local Trader
+// Analyzer Step 5 import. Does NOT affect state machine logic.
+// ============================================================
+
+const string ANALYZER_SCHEMA_VERSION = "1.0"
+const string ANALYZER_STRATEGY_KEY = "FIRST_PULLBACK"
+const string ANALYZER_STRATEGY_VERSION = "Momentum Pullback Copilot v0.3.3.1 Opening Fade Research"
+const string ANALYZER_DIRECTION = "LONG"
+
+var string activeSignalId = ""
+var int activeSignalArmedBarTime = na
+var bool loggedArmedThisOpportunity = false
+var bool loggedEntryThisOpportunity = false
+var bool loggedExitThisOpportunity = false
+
+f_analyzer_origin() =>
+    barstate.isrealtime ? "REALTIME" : "HISTORICAL_REPLAY"
+
+f_analyzer_signal_id(int armedBarTimeMs) =>
+    ANALYZER_STRATEGY_KEY + "|" + syminfo.ticker + "|" + timeframe.period + "|" + str.tostring(armedBarTimeMs)
+
+f_analyzer_num(float value, string numberFormat) =>
+    na(value) ? "" : str.tostring(value, numberFormat)
+
+f_analyzer_bool(bool value) =>
+    value ? "true" : "false"
+
+f_analyzer_context_5m(bool bullishValue) =>
+    bullishValue ? "BULLISH" : "NOT_BULLISH"
+
+f_analyzer_event_line(
+     string eventType,
+     int eventTimeMs,
+     float eventPrice,
+     float plannedEntryValue,
+     float plannedStopValue,
+     float reference2RValue,
+     int suggestedSharesValue,
+     string setupQualityValue,
+     float allowedRiskValue,
+     float plannedPositionValueValue,
+     float plannedExposurePctValue,
+     float signalGapPctValue,
+     float signalRvolValue,
+     float impulsePctValue,
+     float retracementPctValue,
+     bool contextBullishValue,
+     bool aboveVwapValue,
+     bool aboveEma9Value,
+     bool volumeConfirmedValue,
+     string sessionValue,
+     string exitReasonValue
+) =>
+    "PINE_SIGNAL_EVENT\t" +
+     ANALYZER_SCHEMA_VERSION + "\t" +
+     activeSignalId + "\t" +
+     ANALYZER_STRATEGY_KEY + "\t" +
+     ANALYZER_STRATEGY_VERSION + "\t" +
+     syminfo.ticker + "\t" +
+     ANALYZER_DIRECTION + "\t" +
+     timeframe.period + "\t" +
+     f_analyzer_origin() + "\t" +
+     eventType + "\t" +
+     str.format_time(eventTimeMs, "yyyy-MM-dd'T'HH:mm:ss", recordTimezone) + "\t" +
+     str.tostring(eventTimeMs) + "\t" +
+     f_analyzer_num(eventPrice, format.mintick) + "\t" +
+     f_analyzer_num(plannedEntryValue, format.mintick) + "\t" +
+     f_analyzer_num(plannedStopValue, format.mintick) + "\t" +
+     f_analyzer_num(reference2RValue, format.mintick) + "\t" +
+     (na(suggestedSharesValue) ? "" : str.tostring(suggestedSharesValue)) + "\t" +
+     setupQualityValue + "\t" +
+     f_analyzer_num(allowedRiskValue, "#.##") + "\t" +
+     f_analyzer_num(plannedPositionValueValue, "#.##") + "\t" +
+     f_analyzer_num(plannedExposurePctValue, "#.##") + "\t" +
+     f_analyzer_num(signalGapPctValue, "#.##") + "\t" +
+     f_analyzer_num(signalRvolValue, "#.##") + "\t" +
+     f_analyzer_num(impulsePctValue, "#.##") + "\t" +
+     f_analyzer_num(retracementPctValue, "#.##") + "\t" +
+     f_analyzer_context_5m(contextBullishValue) + "\t" +
+     f_analyzer_bool(aboveVwapValue) + "\t" +
+     f_analyzer_bool(aboveEma9Value) + "\t" +
+     f_analyzer_bool(volumeConfirmedValue) + "\t" +
+     sessionValue + "\t" +
+     exitReasonValue
+
+
+// ============================================================
+// 10. INTRABAR LATCHES
+//
+// varip allows a signal to remain latched during a realtime bar.
+// ============================================================
+
+varip bool entryTriggeredThisBar = false
+varip bool exitTriggeredThisBar = false
+
+varip float realtimeEntry = na
+varip float realtimeStop = na
+
+// Pending entry snapshot survives realtime-bar rollback until bar close.
+varip int pendingEntryTime = na
+varip int pendingShares = na
+varip float pendingEntryRetracement = na
+varip float pendingEntryGapPct = na
+varip float pendingEntryRVOL = na
+varip float pendingEntryImpulsePct = na
+varip string pendingEntryQuality = ""
+varip float pendingEntryAllowedRisk = na
+varip float pendingEntryPositionValue = na
+varip float pendingEntryExposurePct = na
+varip bool pendingEntryContextBullish = false
+varip bool pendingEntryAboveVWAP = false
+varip bool pendingEntryAboveEMA9 = false
+varip bool pendingEntryVolumeConfirmed = false
+varip string pendingEntrySession = ""
+
+// Pending exit details survive until the exit bar closes and the row is stored.
+varip int pendingExitTime = na
+varip float pendingExitPrice = na
+varip string pendingExitReason = ""
+
+if barstate.isnew
+    entryTriggeredThisBar := false
+    exitTriggeredThisBar := false
+
+    realtimeEntry := na
+    realtimeStop := na
+
+    pendingEntryTime := na
+    pendingShares := na
+    pendingEntryRetracement := na
+    pendingEntryGapPct := na
+    pendingEntryRVOL := na
+    pendingEntryImpulsePct := na
+    pendingEntryQuality := ""
+    pendingEntryAllowedRisk := na
+    pendingEntryPositionValue := na
+    pendingEntryExposurePct := na
+    pendingEntryContextBullish := false
+    pendingEntryAboveVWAP := false
+    pendingEntryAboveEMA9 := false
+    pendingEntryVolumeConfirmed := false
+    pendingEntrySession := ""
+
+    pendingExitTime := na
+    pendingExitPrice := na
+    pendingExitReason := ""
+
+
+// ============================================================
+// 11. DAILY RESET
+// ============================================================
+
+if timeframe.change("D") and state != 4
+    state := 0
+
+    impulseLow := na
+    impulseHigh := na
+    impulseStartBar := na
+
+    pullbackLow := na
+    pullbackBars := 0
+
+    structureBreached := false
+    toppingTailSeen := false
+
+    entryLevel := na
+    stopLevel := na
+
+    tradeEntry := na
+    tradeStop := na
+    tradeTarget := na
+
+
+// ============================================================
+// 12. HELPER VALUES
+// ============================================================
+
+impulseRange =
+     not na(impulseHigh) and not na(impulseLow)
+         ? impulseHigh - impulseLow
+         : na
+
+currentPullbackLow =
+     state == 3 and not na(pullbackLow)
+         ? math.min(pullbackLow, low)
+         : pullbackLow
+
+currentRetracement =
+     not na(impulseRange) and
+     impulseRange > 0 and
+     not na(currentPullbackLow)
+         ? ((impulseHigh - currentPullbackLow) / impulseRange) * 100
+         : na
+
+contextOK =
+     not requireContextBullish or contextBullish
+
+
+// ============================================================
+// 12B. POSITION-SIZING HELPERS
+//
+// Risk is capped first by account risk, then by position value.
+// Momentum/setup quality can REDUCE risk, never increase it
+// beyond the predefined base-risk ceiling.
+// ============================================================
+
+baseRiskDollars =
+     accountEquity * (baseRiskPct / 100.0)
+
+maxPositionDollars =
+     accountEquity * (maxPositionPct / 100.0)
+
+currentImpulsePct =
+     not na(impulseLow) and
+     impulseLow > 0 and
+     not na(impulseHigh)
+         ? ((impulseHigh - impulseLow) / impulseLow) * 100.0
+         : na
+
+f_quality(
+     float retracementValue,
+     float impulsePctValue,
+     bool contextBullishValue,
+     bool volumeConfirmedValue
+) =>
+    bool fullSize =
+         not na(retracementValue) and
+         not na(impulsePctValue) and
+         retracementValue <= fullSizeRetracementPct and
+         impulsePctValue >= minImpulsePct * fullSizeImpulseMultiple and
+         contextBullishValue and
+         volumeConfirmedValue
+
+    fullSize ? "A+" : "A"
+
+f_quality_multiplier(string qualityValue) =>
+    qualityValue == "A+" ? 1.0 : aRiskMultiplier
+
+f_analyzer_log_armed(
+     float armedEntryValue,
+     float armedStopValue,
+     float armedRetracementValue
+) =>
+    float armedRiskValue = armedEntryValue - armedStopValue
+    float armed2RValue = armedRiskValue > 0 ? armedEntryValue + armedRiskValue * rewardMultiple : na
+    float armedImpulsePct =
+         not na(impulseLow) and impulseLow > 0
+             ? ((impulseHigh - impulseLow) / impulseLow) * 100.0
+             : na
+    float armedGapPct =
+         not na(priorDailyClose) and priorDailyClose > 0
+             ? ((armedEntryValue - priorDailyClose) / priorDailyClose) * 100
+             : na
+    string armedQuality =
+         f_quality(
+             armedRetracementValue,
+             armedImpulsePct,
+             contextBullish,
+             volumeStructureBullish
+         )
+    float armedQualityMultiplier = f_quality_multiplier(armedQuality)
+    float armedAllowedRisk = baseRiskDollars * armedQualityMultiplier
+    float armedEffectiveRisk = armedRiskValue > 0 ? armedRiskValue + slippageAllowance : na
+    int armedRiskShares =
+         armedEffectiveRisk > 0
+             ? int(math.floor(armedAllowedRisk / armedEffectiveRisk))
+             : 0
+    int armedExposureShares =
+         armedEntryValue > 0
+             ? int(math.floor(maxPositionDollars / armedEntryValue))
+             : 0
+    int armedShares = math.max(0, math.min(armedRiskShares, armedExposureShares))
+    float armedPositionValue = armedShares * armedEntryValue
+    float armedExposurePct =
+         accountEquity > 0
+             ? (armedPositionValue / accountEquity) * 100.0
+             : na
+    int armedEventTimeMs = time
+    string armedSession = f_session_label(armedEventTimeMs)
+    log.info(
+         f_analyzer_event_line(
+             "ARMED",
+             armedEventTimeMs,
+             armedEntryValue,
+             armedEntryValue,
+             armedStopValue,
+             armed2RValue,
+             armedShares,
+             armedQuality,
+             armedAllowedRisk,
+             armedPositionValue,
+             armedExposurePct,
+             armedGapPct,
+             currentDailyRVOL,
+             armedImpulsePct,
+             armedRetracementValue,
+             contextBullish,
+             armedEntryValue > vwapValue,
+             armedEntryValue > ema9,
+             volumeStructureBullish,
+             armedSession,
+             ""
+         )
+     )
+
+f_analyzer_log_entry(
+     int entryEventTimeMs,
+     float entryPriceValue,
+     float stopPriceValue,
+     float reference2RValue,
+     int sharesValue,
+     string qualityValue,
+     float allowedRiskValue,
+     float positionValueValue,
+     float exposurePctValue,
+     float gapPctValue,
+     float rvolValue,
+     float impulsePctValue,
+     float retracementPctValue,
+     bool contextBullishValue,
+     bool aboveVwapValue,
+     bool aboveEma9Value,
+     bool volumeConfirmedValue,
+     string sessionValue
+) =>
+    log.info(
+         f_analyzer_event_line(
+             "ENTRY",
+             entryEventTimeMs,
+             entryPriceValue,
+             entryPriceValue,
+             stopPriceValue,
+             reference2RValue,
+             sharesValue,
+             qualityValue,
+             allowedRiskValue,
+             positionValueValue,
+             exposurePctValue,
+             gapPctValue,
+             rvolValue,
+             impulsePctValue,
+             retracementPctValue,
+             contextBullishValue,
+             aboveVwapValue,
+             aboveEma9Value,
+             volumeConfirmedValue,
+             sessionValue,
+             ""
+         )
+     )
+
+f_analyzer_log_exit(
+     int exitEventTimeMs,
+     float exitPriceValue,
+     float entryPriceValue,
+     float stopPriceValue,
+     float reference2RValue,
+     int sharesValue,
+     string qualityValue,
+     float allowedRiskValue,
+     float positionValueValue,
+     float exposurePctValue,
+     float gapPctValue,
+     float rvolValue,
+     float impulsePctValue,
+     float retracementPctValue,
+     bool contextBullishValue,
+     bool aboveVwapValue,
+     bool aboveEma9Value,
+     bool volumeConfirmedValue,
+     string sessionValue,
+     string exitReasonValue
+) =>
+    log.info(
+         f_analyzer_event_line(
+             "EXIT",
+             exitEventTimeMs,
+             exitPriceValue,
+             entryPriceValue,
+             stopPriceValue,
+             reference2RValue,
+             sharesValue,
+             qualityValue,
+             allowedRiskValue,
+             positionValueValue,
+             exposurePctValue,
+             gapPctValue,
+             rvolValue,
+             impulsePctValue,
+             retracementPctValue,
+             contextBullishValue,
+             aboveVwapValue,
+             aboveEma9Value,
+             volumeConfirmedValue,
+             sessionValue,
+             exitReasonValue
+         )
+     )
+
+
+// ============================================================
+// 13. EVENT FLAGS FOR VISUALS
+// ============================================================
+
+bool impulseEvent = false
+bool armedEvent = false
+bool entryEvent = false
+bool exitEvent = false
+
+
+
+// ============================================================
+// 14. STATE 0 — SCANNING
+// ============================================================
+
+if state == 0 and barstate.isconfirmed
+
+    if impulseCandidate
+
+        state := 1
+
+        impulseLow := localImpulseLow
+        impulseHigh := high
+
+        impulseStartBar := bar_index
+
+        impulseEvent := true
+
+
+// ============================================================
+// 15. STATE 1 — IMPULSE CONTINUES
+// ============================================================
+
+else if state == 1 and barstate.isconfirmed
+
+    impulseHigh := math.max(impulseHigh, high)
+
+    bool pullbackStarted =
+         close < open or
+         high < high[1]
+
+    bool impulseTimedOut =
+         bar_index - impulseStartBar > maxImpulseBars
+
+    if impulseTimedOut
+
+        state := 0
+
+    else if pullbackStarted
+
+        pullbackLow := low
+        pullbackBars := 1
+
+        structureBreached :=
+             low <= ema9 or
+             low <= vwapValue
+
+        toppingTailSeen :=
+             useToppingTailFilter and toppingTail
+
+        float initialRange =
+             impulseHigh - impulseLow
+
+        float initialRetracement =
+             initialRange > 0
+                 ? ((impulseHigh - pullbackLow) / initialRange) * 100
+                 : 100.0
+
+        bool hardInvalid =
+             initialRetracement > maxRetracementPct or
+             structureBreached or
+             toppingTailSeen
+
+        bool softValid =
+             volumeStructureBullish and
+             contextOK
+
+        if hardInvalid
+
+            state := 0
+
+        else if
+             pullbackBars >= minPullbackBars and
+             softValid
+
+            state := 3
+
+            entryLevel := high
+            stopLevel := pullbackLow
+
+            armedEvent := true
+
+            float armedEntry =
+                 entryLevel + syminfo.mintick
+
+            float armedRisk =
+                 armedEntry - stopLevel
+
+            float armedTarget =
+                 armedEntry + armedRisk * rewardMultiple
+
+            if armedRisk > 0
+                alert(
+                     "SETUP ARMED | " +
+                     syminfo.ticker +
+                     " | Entry above: " +
+                     str.tostring(armedEntry, format.mintick) +
+                     " | Stop: " +
+                     str.tostring(stopLevel, format.mintick) +
+                     " | " +
+                     str.tostring(rewardMultiple, "#.##") +
+                     "R: " +
+                     str.tostring(armedTarget, format.mintick),
+                     alert.freq_once_per_bar
+                 )
+
+            if activeSignalId == ""
+                activeSignalArmedBarTime := time
+                activeSignalId := f_analyzer_signal_id(time)
+                loggedArmedThisOpportunity := false
+                loggedEntryThisOpportunity := false
+                loggedExitThisOpportunity := false
+            if enableAnalyzerSignalLogs and not loggedArmedThisOpportunity
+                loggedArmedThisOpportunity := true
+                f_analyzer_log_armed(armedEntry, stopLevel, initialRetracement)
+
+        else
+
+            state := 2
+
+
+// ============================================================
+// 16. STATE 2 — PULLBACK FORMING
+// ============================================================
+
+else if state == 2 and barstate.isconfirmed
+
+    pullbackBars += 1
+
+    pullbackLow :=
+         math.min(pullbackLow, low)
+
+    structureBreached :=
+         structureBreached or
+         low <= ema9 or
+         low <= vwapValue
+
+    toppingTailSeen :=
+         toppingTailSeen or
+         (useToppingTailFilter and toppingTail)
+
+    float pbRange =
+         impulseHigh - impulseLow
+
+    float pbRetracement =
+         pbRange > 0
+             ? ((impulseHigh - pullbackLow) / pbRange) * 100
+             : 100.0
+
+    bool hardInvalid =
+         pbRetracement > maxRetracementPct or
+         structureBreached or
+         toppingTailSeen or
+         pullbackBars > maxPullbackBars
+
+    bool softValid =
+         volumeStructureBullish and
+         contextOK
+
+    if hardInvalid
+
+        state := 0
+
+    else if
+         pullbackBars >= minPullbackBars and
+         softValid
+
+        state := 3
+
+        entryLevel := high
+        stopLevel := pullbackLow
+
+        armedEvent := true
+
+        float armedEntry =
+             entryLevel + syminfo.mintick
+
+        float armedRisk =
+             armedEntry - stopLevel
+
+        float armedTarget =
+             armedEntry + armedRisk * rewardMultiple
+
+        if armedRisk > 0
+            alert(
+                 "SETUP ARMED | " +
+                 syminfo.ticker +
+                 " | Entry above: " +
+                 str.tostring(armedEntry, format.mintick) +
+                 " | Stop: " +
+                 str.tostring(stopLevel, format.mintick) +
+                 " | " +
+                 str.tostring(rewardMultiple, "#.##") +
+                 "R: " +
+                 str.tostring(armedTarget, format.mintick),
+                 alert.freq_once_per_bar
+             )
+
+        if activeSignalId == ""
+            activeSignalArmedBarTime := time
+            activeSignalId := f_analyzer_signal_id(time)
+            loggedArmedThisOpportunity := false
+            loggedEntryThisOpportunity := false
+            loggedExitThisOpportunity := false
+        if enableAnalyzerSignalLogs and not loggedArmedThisOpportunity
+            loggedArmedThisOpportunity := true
+            f_analyzer_log_armed(armedEntry, stopLevel, pbRetracement)
+
+
+// ============================================================
+// 17. STATE 3 — ARMED / WAITING FOR CROSSING CANDLE
+//
+// ENTRY:
+// First candle to trade above previous pullback candle high.
+//
+// This can trigger INTRABAR.
+// ============================================================
+
+if state == 3
+
+    float livePullbackLow =
+         math.min(pullbackLow, low)
+
+    float liveRange =
+         impulseHigh - impulseLow
+
+    float liveRetracement =
+         liveRange > 0
+             ? ((impulseHigh - livePullbackLow) / liveRange) * 100
+             : 100.0
+
+    bool liveStructureOK =
+         not structureBreached and
+         low > ema9 and
+         low > vwapValue
+
+    bool liveRetracementOK =
+         liveRetracement <= maxRetracementPct
+
+    float plannedEntry =
+         entryLevel + syminfo.mintick
+
+    bool crossingCandle =
+         high >= plannedEntry
+
+    bool liveEntryValid =
+         inSession and
+         liveStructureOK and
+         liveRetracementOK
+
+    if
+         crossingCandle and
+         liveEntryValid and
+         not entryTriggeredThisBar
+
+        entryTriggeredThisBar := true
+        entryEvent := true
+
+        realtimeEntry := plannedEntry
+        realtimeStop := livePullbackLow
+
+        float rawRisk =
+             realtimeEntry - realtimeStop
+
+        float effectiveRisk =
+             rawRisk + slippageAllowance
+
+        float entryImpulsePct =
+             not na(impulseLow) and impulseLow > 0
+                 ? ((impulseHigh - impulseLow) / impulseLow) * 100.0
+                 : na
+
+        string entryQuality =
+             f_quality(
+                 liveRetracement,
+                 entryImpulsePct,
+                 contextBullish,
+                 volumeStructureBullish
+             )
+
+        float qualityMultiplier =
+             f_quality_multiplier(entryQuality)
+
+        float allowedRisk =
+             baseRiskDollars * qualityMultiplier
+
+        int riskBasedShares =
+             effectiveRisk > 0
+                 ? int(math.floor(allowedRisk / effectiveRisk))
+                 : 0
+
+        int exposureBasedShares =
+             realtimeEntry > 0
+                 ? int(math.floor(maxPositionDollars / realtimeEntry))
+                 : 0
+
+        int maxShares =
+             math.max(
+                 0,
+                 math.min(riskBasedShares, exposureBasedShares)
+             )
+
+        float plannedPositionValue =
+             maxShares * realtimeEntry
+
+        float plannedExposurePct =
+             accountEquity > 0
+                 ? (plannedPositionValue / accountEquity) * 100.0
+                 : na
+
+        // Freeze the setup exactly as it looked when ENTRY fired.
+        pendingEntryTime := barstate.isrealtime ? timenow : time
+        pendingShares := maxShares
+        pendingEntryRetracement := liveRetracement
+        pendingEntryGapPct :=
+             not na(priorDailyClose) and priorDailyClose > 0
+                 ? ((realtimeEntry - priorDailyClose) / priorDailyClose) * 100
+                 : na
+        pendingEntryRVOL := currentDailyRVOL
+        pendingEntryImpulsePct := entryImpulsePct
+        pendingEntryQuality := entryQuality
+        pendingEntryAllowedRisk := allowedRisk
+        pendingEntryPositionValue := plannedPositionValue
+        pendingEntryExposurePct := plannedExposurePct
+        pendingEntryContextBullish := contextBullish
+        pendingEntryAboveVWAP := realtimeEntry > vwapValue
+        pendingEntryAboveEMA9 := realtimeEntry > ema9
+        pendingEntryVolumeConfirmed := volumeStructureBullish
+        pendingEntrySession := f_session_label(pendingEntryTime)
+
+        if enableAnalyzerSignalLogs and activeSignalId != "" and not loggedEntryThisOpportunity
+            loggedEntryThisOpportunity := true
+            int entryEventTimeMs = barstate.isrealtime ? timenow : time
+            float entryReference2R =
+                 rawRisk > 0
+                     ? realtimeEntry + rawRisk * rewardMultiple
+                     : na
+            f_analyzer_log_entry(
+                 entryEventTimeMs,
+                 realtimeEntry,
+                 realtimeStop,
+                 entryReference2R,
+                 maxShares,
+                 entryQuality,
+                 allowedRisk,
+                 plannedPositionValue,
+                 plannedExposurePct,
+                 pendingEntryGapPct,
+                 pendingEntryRVOL,
+                 pendingEntryImpulsePct,
+                 pendingEntryRetracement,
+                 pendingEntryContextBullish,
+                 pendingEntryAboveVWAP,
+                 pendingEntryAboveEMA9,
+                 pendingEntryVolumeConfirmed,
+                 pendingEntrySession
+             )
+
+        float targetPrice =
+             realtimeEntry +
+             rawRisk * rewardMultiple
+
+        alert(
+             "ENTRY NOW | " +
+             syminfo.ticker +
+             " | Entry: " +
+             str.tostring(realtimeEntry, format.mintick) +
+             " | Stop: " +
+             str.tostring(realtimeStop, format.mintick) +
+             " | Effective risk/share: $" +
+             str.tostring(effectiveRisk, "#.####") +
+             " | Quality: " +
+             entryQuality +
+             " | Allowed risk: $" +
+             str.tostring(allowedRisk, "#.##") +
+             " | BUY MAX: " +
+             str.tostring(maxShares) +
+             " | Position: $" +
+             str.tostring(plannedPositionValue, "#.##") +
+             " | " +
+             str.tostring(rewardMultiple, "#.##") +
+             "R: " +
+             str.tostring(targetPrice, format.mintick),
+             alert.freq_once_per_bar
+         )
+
+
+    // --------------------------------------------------------
+    // Same-bar emergency stop after realtime entry.
+    //
+    // We use the current LAST PRICE (close) here rather than
+    // candle low because candle low may have occurred BEFORE
+    // the entry trigger.
+    // --------------------------------------------------------
+
+    if
+         entryTriggeredThisBar and
+         not exitTriggeredThisBar and
+         close <= realtimeStop
+
+        exitTriggeredThisBar := true
+        exitEvent := true
+
+        pendingExitTime := barstate.isrealtime ? timenow : time
+        pendingExitPrice := realtimeStop
+        pendingExitReason := "STOP LOSS"
+
+        if enableAnalyzerSignalLogs and activeSignalId != "" and not loggedExitThisOpportunity
+            loggedExitThisOpportunity := true
+            int exitEventTimeMs = barstate.isrealtime ? timenow : time
+            float sameBarTradeRisk = realtimeEntry - realtimeStop
+            float exitReference2R =
+                 sameBarTradeRisk > 0
+                     ? realtimeEntry + sameBarTradeRisk * rewardMultiple
+                     : na
+            f_analyzer_log_exit(
+                 exitEventTimeMs,
+                 pendingExitPrice,
+                 realtimeEntry,
+                 realtimeStop,
+                 exitReference2R,
+                 pendingShares,
+                 pendingEntryQuality,
+                 pendingEntryAllowedRisk,
+                 pendingEntryPositionValue,
+                 pendingEntryExposurePct,
+                 pendingEntryGapPct,
+                 pendingEntryRVOL,
+                 pendingEntryImpulsePct,
+                 pendingEntryRetracement,
+                 pendingEntryContextBullish,
+                 pendingEntryAboveVWAP,
+                 pendingEntryAboveEMA9,
+                 pendingEntryVolumeConfirmed,
+                 pendingEntrySession,
+                 pendingExitReason
+             )
+
+        alert(
+             "EXIT NOW — STOP | " +
+             syminfo.ticker +
+             " | Price: " +
+             str.tostring(close, format.mintick) +
+             " | Stop: " +
+             str.tostring(realtimeStop, format.mintick),
+             alert.freq_once_per_bar
+         )
+
+
+    // --------------------------------------------------------
+    // Close of crossing bar:
+    // Commit the realtime trade state.
+    // --------------------------------------------------------
+
+    if barstate.isconfirmed
+
+        if entryTriggeredThisBar
+
+            if exitTriggeredThisBar
+                // LIVE ONLY: write one completed signal trade to Pine Logs.
+                if barstate.isrealtime and not na(pendingEntryTime) and not na(pendingExitTime)
+                    log.info(
+                         f_record_text(
+                             pendingEntryTime, pendingExitTime, realtimeEntry, pendingExitPrice,
+                             realtimeStop, pendingShares, pendingEntryGapPct, pendingEntryRVOL,
+                             pendingEntryImpulsePct, pendingEntryQuality,
+                             pendingEntryAllowedRisk, pendingEntryPositionValue,
+                             pendingEntryExposurePct, pendingEntryRetracement,
+                             pendingEntryContextBullish, pendingEntryAboveVWAP,
+                             pendingEntryAboveEMA9, pendingEntryVolumeConfirmed,
+                             pendingEntrySession, "First Pullback", pendingExitReason
+                         )
+                    )
+
+                state := 5
+                cooldownStartBar := bar_index
+
+            else
+
+                state := 4
+
+                tradeEntry := realtimeEntry
+                tradeStop := realtimeStop
+
+                // Commit the frozen entry snapshot for the open trade.
+                tradeEntryTime := pendingEntryTime
+                tradeShares := pendingShares
+                tradeEntryRetracement := pendingEntryRetracement
+                tradeEntryGapPct := pendingEntryGapPct
+                tradeEntryRVOL := pendingEntryRVOL
+                tradeEntryImpulsePct := pendingEntryImpulsePct
+                tradeEntryQuality := pendingEntryQuality
+                tradeEntryAllowedRisk := pendingEntryAllowedRisk
+                tradeEntryPositionValue := pendingEntryPositionValue
+                tradeEntryExposurePct := pendingEntryExposurePct
+                tradeEntryContextBullish := pendingEntryContextBullish
+                tradeEntryAboveVWAP := pendingEntryAboveVWAP
+                tradeEntryAboveEMA9 := pendingEntryAboveEMA9
+                tradeEntryVolumeConfirmed := pendingEntryVolumeConfirmed
+                tradeEntrySession := pendingEntrySession
+                tradeSetupType := "First Pullback"
+
+                float finalRisk =
+                     tradeEntry - tradeStop
+
+                tradeTarget :=
+                     tradeEntry +
+                     finalRisk * rewardMultiple
+
+        else
+
+            pullbackBars += 1
+
+            pullbackLow :=
+                 math.min(pullbackLow, low)
+
+            structureBreached :=
+                 structureBreached or
+                 low <= ema9 or
+                 low <= vwapValue
+
+            toppingTailSeen :=
+                 toppingTailSeen or
+                 (useToppingTailFilter and toppingTail)
+
+            float continuingRange =
+                 impulseHigh - impulseLow
+
+            float continuingRetracement =
+                 continuingRange > 0
+                     ? ((impulseHigh - pullbackLow) / continuingRange) * 100
+                     : 100.0
+
+            bool hardInvalid =
+                 continuingRetracement > maxRetracementPct or
+                 structureBreached or
+                 toppingTailSeen or
+                 pullbackBars > maxPullbackBars
+
+            bool stillQualifies =
+                 volumeStructureBullish and
+                 contextOK
+
+            if hardInvalid
+
+                state := 0
+
+            else if not stillQualifies
+
+                state := 2
+
+            else
+
+                // New previous candle high becomes the
+                // next crossing-candle trigger.
+                entryLevel := high
+                stopLevel := pullbackLow
+
+
+// ============================================================
+// 18. STATE 4 — POSITION MONITOR
+// ============================================================
+
+if state == 4
+
+    // HARD STOP runs intrabar.
+    bool hardStopHit =
+         low <= tradeStop
+
+    if
+         hardStopHit and
+         not exitTriggeredThisBar
+
+        exitTriggeredThisBar := true
+        exitEvent := true
+
+        pendingExitTime := barstate.isrealtime ? timenow : time
+        pendingExitPrice := tradeStop
+        pendingExitReason := "STOP LOSS"
+
+        if enableAnalyzerSignalLogs and activeSignalId != "" and not loggedExitThisOpportunity
+            loggedExitThisOpportunity := true
+            int exitEventTimeMs = barstate.isrealtime ? timenow : time
+            float openTradeRisk = tradeEntry - tradeStop
+            float exitReference2R =
+                 openTradeRisk > 0
+                     ? tradeEntry + openTradeRisk * rewardMultiple
+                     : na
+            f_analyzer_log_exit(
+                 exitEventTimeMs,
+                 pendingExitPrice,
+                 tradeEntry,
+                 tradeStop,
+                 exitReference2R,
+                 tradeShares,
+                 tradeEntryQuality,
+                 tradeEntryAllowedRisk,
+                 tradeEntryPositionValue,
+                 tradeEntryExposurePct,
+                 tradeEntryGapPct,
+                 tradeEntryRVOL,
+                 tradeEntryImpulsePct,
+                 tradeEntryRetracement,
+                 tradeEntryContextBullish,
+                 tradeEntryAboveVWAP,
+                 tradeEntryAboveEMA9,
+                 tradeEntryVolumeConfirmed,
+                 tradeEntrySession,
+                 pendingExitReason
+             )
+
+        alert(
+             "EXIT NOW — STOP | " +
+             syminfo.ticker +
+             " | Stop: " +
+             str.tostring(tradeStop, format.mintick),
+             alert.freq_once_per_bar
+         )
+
+
+    // --------------------------------------------------------
+    // Chart-based exits are CONFIRMED at candle close.
+    //
+    // We do this initially to avoid unstable/repainting
+    // warnings while we validate the logic.
+    // --------------------------------------------------------
+
+    if
+         barstate.isconfirmed and
+         not exitTriggeredThisBar
+
+        float exitRange =
+             math.max(high - low, syminfo.mintick)
+
+        float exitUpperWick =
+             high - math.max(open, close)
+
+        float exitUpperWickRatio =
+             exitUpperWick / exitRange
+
+        bool exitToppingTail =
+             exitUpperWickRatio >= exitTailRatio
+
+        bool sharpRedReversal =
+             close < open and
+             exitRange >= atr * reversalATRMultiplier and
+             close <= low + exitRange * 0.35
+
+        float priorVolumeAverage =
+             slowdownVolumeAverage[1]
+
+        bool buyingSlowdown =
+             not na(volume) and
+             not na(priorVolumeAverage) and
+             close < close[1] and
+             volume <
+                 priorVolumeAverage *
+                 slowdownFactor
+
+        bool chartExit =
+             exitToppingTail or
+             sharpRedReversal or
+             buyingSlowdown
+
+        if chartExit
+
+            exitTriggeredThisBar := true
+            exitEvent := true
+
+            string exitReason =
+                 exitToppingTail
+                     ? "TOPPING TAIL"
+                     : sharpRedReversal
+                         ? "SHARP REVERSAL"
+                         : "BUYING SLOWDOWN"
+
+            pendingExitTime := barstate.isrealtime ? timenow : time
+            pendingExitPrice := close
+            pendingExitReason := exitReason
+
+            if enableAnalyzerSignalLogs and activeSignalId != "" and not loggedExitThisOpportunity
+                loggedExitThisOpportunity := true
+                int exitEventTimeMs = barstate.isrealtime ? timenow : time
+                float openTradeRisk = tradeEntry - tradeStop
+                float exitReference2R =
+                     openTradeRisk > 0
+                         ? tradeEntry + openTradeRisk * rewardMultiple
+                         : na
+                f_analyzer_log_exit(
+                     exitEventTimeMs,
+                     pendingExitPrice,
+                     tradeEntry,
+                     tradeStop,
+                     exitReference2R,
+                     tradeShares,
+                     tradeEntryQuality,
+                     tradeEntryAllowedRisk,
+                     tradeEntryPositionValue,
+                     tradeEntryExposurePct,
+                     tradeEntryGapPct,
+                     tradeEntryRVOL,
+                     tradeEntryImpulsePct,
+                     tradeEntryRetracement,
+                     tradeEntryContextBullish,
+                     tradeEntryAboveVWAP,
+                     tradeEntryAboveEMA9,
+                     tradeEntryVolumeConfirmed,
+                     tradeEntrySession,
+                     pendingExitReason
+                 )
+
+            alert(
+                 "EXIT NOW — " +
+                 exitReason +
+                 " | " +
+                 syminfo.ticker +
+                 " | Price: " +
+                 str.tostring(close, format.mintick) +
+                 " | Entry: " +
+                 str.tostring(tradeEntry, format.mintick) +
+                 " | Stop: " +
+                 str.tostring(tradeStop, format.mintick),
+                 alert.freq_once_per_bar
+             )
+
+
+    if
+         barstate.isconfirmed and
+         exitTriggeredThisBar
+        // LIVE ONLY: write one completed signal trade to Pine Logs.
+        if barstate.isrealtime and not na(tradeEntryTime) and not na(pendingExitTime)
+            log.info(
+                 f_record_text(
+                     tradeEntryTime, pendingExitTime, tradeEntry, pendingExitPrice,
+                     tradeStop, tradeShares, tradeEntryGapPct, tradeEntryRVOL,
+                     tradeEntryImpulsePct, tradeEntryQuality,
+                     tradeEntryAllowedRisk, tradeEntryPositionValue,
+                     tradeEntryExposurePct, tradeEntryRetracement,
+                     tradeEntryContextBullish, tradeEntryAboveVWAP,
+                     tradeEntryAboveEMA9, tradeEntryVolumeConfirmed,
+                     tradeEntrySession, tradeSetupType, pendingExitReason
+                 )
+            )
+
+        state := 5
+        cooldownStartBar := bar_index
+
+
+// ============================================================
+// 19. STATE 5 — COOLDOWN
+// ============================================================
+
+if state == 5 and barstate.isconfirmed
+
+    if
+         not na(cooldownStartBar) and
+         bar_index - cooldownStartBar >= cooldownBars
+
+        state := 0
+
+        impulseLow := na
+        impulseHigh := na
+        impulseStartBar := na
+
+        pullbackLow := na
+        pullbackBars := 0
+
+        structureBreached := false
+        toppingTailSeen := false
+
+        entryLevel := na
+        stopLevel := na
+
+        tradeEntry := na
+        tradeStop := na
+        tradeTarget := na
+
+
+// Reset analyzer signal tracking when returning to SCANNING.
+if state == 0 and activeSignalId != ""
+    activeSignalId := ""
+    activeSignalArmedBarTime := na
+    loggedArmedThisOpportunity := false
+    loggedEntryThisOpportunity := false
+    loggedExitThisOpportunity := false
+
+
+// ============================================================
+// 20. DISPLAY VALUES
+// ============================================================
+
+bool realtimePosition =
+     entryTriggeredThisBar and
+     not exitTriggeredThisBar
+
+float displayEntry =
+     realtimePosition
+         ? realtimeEntry
+         : state == 4
+             ? tradeEntry
+             : state == 3
+                 ? entryLevel + syminfo.mintick
+                 : na
+
+float displayStop =
+     realtimePosition
+         ? realtimeStop
+         : state == 4
+             ? tradeStop
+             : state == 3
+                 ? math.min(pullbackLow, low)
+                 : na
+
+float displayRisk =
+     not na(displayEntry) and
+     not na(displayStop)
+         ? displayEntry - displayStop
+         : na
+
+float displayTarget =
+     state == 4
+         ? tradeTarget
+         : not na(displayRisk)
+             ? displayEntry +
+               displayRisk *
+               rewardMultiple
+             : na
+
+float effectiveDisplayRisk =
+     not na(displayRisk)
+         ? displayRisk +
+           slippageAllowance
+         : na
+
+float displayImpulsePct =
+     state == 4 and not na(tradeEntryImpulsePct)
+         ? tradeEntryImpulsePct
+         : currentImpulsePct
+
+float displayRetracementForSizing =
+     state == 4 and not na(tradeEntryRetracement)
+         ? tradeEntryRetracement
+         : currentRetracement
+
+string displayQuality =
+     state == 4 and tradeEntryQuality != ""
+         ? tradeEntryQuality
+         : (state == 3 or realtimePosition)
+             ? f_quality(
+                 displayRetracementForSizing,
+                 displayImpulsePct,
+                 contextBullish,
+                 volumeStructureBullish
+               )
+             : "—"
+
+float displayQualityMultiplier =
+     displayQuality == "A+"
+         ? 1.0
+         : displayQuality == "A"
+             ? aRiskMultiplier
+             : na
+
+float displayAllowedRisk =
+     state == 4 and not na(tradeEntryAllowedRisk)
+         ? tradeEntryAllowedRisk
+         : not na(displayQualityMultiplier)
+             ? baseRiskDollars * displayQualityMultiplier
+             : na
+
+int displayRiskShares =
+     not na(effectiveDisplayRisk) and
+     effectiveDisplayRisk > 0 and
+     not na(displayAllowedRisk)
+         ? int(math.floor(displayAllowedRisk / effectiveDisplayRisk))
+         : 0
+
+int displayExposureShares =
+     not na(displayEntry) and
+     displayEntry > 0
+         ? int(math.floor(maxPositionDollars / displayEntry))
+         : 0
+
+int displayShares =
+     state == 4 and tradeShares > 0
+         ? tradeShares
+         : math.max(
+             0,
+             math.min(displayRiskShares, displayExposureShares)
+           )
+
+float displayPositionValue =
+     state == 4 and not na(tradeEntryPositionValue)
+         ? tradeEntryPositionValue
+         : not na(displayEntry)
+             ? displayShares * displayEntry
+             : na
+
+float displayExposurePct =
+     state == 4 and not na(tradeEntryExposurePct)
+         ? tradeEntryExposurePct
+         : accountEquity > 0 and not na(displayPositionValue)
+             ? (displayPositionValue / accountEquity) * 100.0
+             : na
+
+
+// ============================================================
+// 21. CHART PLOTS
+// ============================================================
+
+plot(
+     showEMA ? ema9 : na,
+     "EMA 9",
+     color = color.orange,
+     linewidth = 1
+)
+
+plot(
+     showVWAP ? vwapValue : na,
+     "VWAP",
+     color = color.blue,
+     linewidth = 2
+)
+
+plot(
+     state == 3 or state == 4 or realtimePosition
+         ? displayEntry
+         : na,
+     "Entry / Trigger",
+     color = color.lime,
+     linewidth = 2,
+     style = plot.style_linebr
+)
+
+plot(
+     state == 3 or state == 4 or realtimePosition
+         ? displayStop
+         : na,
+     "Stop",
+     color = color.red,
+     linewidth = 2,
+     style = plot.style_linebr
+)
+
+plot(
+     state == 3 or state == 4 or realtimePosition
+         ? displayTarget
+         : na,
+     "Reference R Target",
+     color = color.aqua,
+     linewidth = 1,
+     style = plot.style_linebr
+)
+
+
+
+
+// ============================================================
+// 22. SIGNAL MARKERS
+// ============================================================
+
+plotshape(
+     showImpulseMarkers and impulseEvent,
+     title = "Impulse detected",
+     text = "IMPULSE",
+     style = shape.labelup,
+     location = location.belowbar,
+     size = size.tiny,
+     color = color.blue,
+     textcolor = color.white
+)
+
+plotshape(
+     armedEvent,
+     title = "Setup armed",
+     text = "ARMED",
+     style = shape.labelup,
+     location = location.belowbar,
+     size = size.small,
+     color = color.orange,
+     textcolor = color.white
+)
+
+plotshape(
+     entryEvent,
+     title = "Entry",
+     text = "ENTRY",
+     style = shape.labelup,
+     location = location.belowbar,
+     size = size.small,
+     color = color.green,
+     textcolor = color.white
+)
+
+plotshape(
+     exitEvent,
+     title = "Exit",
+     text = "EXIT",
+     style = shape.labeldown,
+     location = location.abovebar,
+     size = size.small,
+     color = color.red,
+     textcolor = color.white
+)
+
+
+//
+// OPENING FADE RESEARCH MARKERS
+// The "-1" suffix distinguishes them from the original long strategy.
+//
+
+plotshape(
+     shortArmedEvent,
+     title = "ARMED-1 — Opening Fade",
+     text = "ARMED-1",
+     style = shape.labeldown,
+     location = location.abovebar,
+     size = size.small,
+     color = color.orange,
+     textcolor = color.white
+)
+
+plotshape(
+     shortEntryEvent,
+     title = "ENTRY-1 — Opening Fade",
+     text = "ENTRY-1",
+     style = shape.labeldown,
+     location = location.abovebar,
+     size = size.small,
+     color = color.red,
+     textcolor = color.white
+)
+
+plotshape(
+     shortExitEvent,
+     title = "EXIT-1 — Opening Fade",
+     text = "EXIT-1",
+     style = shape.labelup,
+     location = location.belowbar,
+     size = size.small,
+     color = color.green,
+     textcolor = color.white
+)
+
+
+// ============================================================
+// 22B. DEDICATED TRADINGVIEW ALERT CONDITIONS
+//
+// These let you create separate TradingView alerts for ARMED,
+// ENTRY and EXIT. The actual sound/chime is selected in the
+// TradingView Create Alert dialog, not inside Pine.
+// ============================================================
+
+alertcondition(
+     armedEvent,
+     title = "ARMED — Setup Ready",
+     message = "ARMED | {{ticker}} | Momentum Pullback setup is ready. Check the chart for entry, stop and sizing."
+)
+
+alertcondition(
+     entryEvent,
+     title = "ENTRY — Triggered",
+     message = "ENTRY | {{ticker}} | Momentum Pullback entry trigger fired."
+)
+
+alertcondition(
+     exitEvent,
+     title = "EXIT — Triggered",
+     message = "EXIT | {{ticker}} | Momentum Pullback exit condition fired."
+)
+
+
+alertcondition(
+     shortArmedEvent,
+     title = "ARMED-1 — Opening Fade",
+     message = "ARMED-1 | {{ticker}} | Opening Fade has retraced the configured amount after a qualified opening reversal."
+)
+
+alertcondition(
+     shortEntryEvent,
+     title = "ENTRY-1 — Opening Fade",
+     message = "ENTRY-1 | {{ticker}} | Opening Fade is below EMA9 and VWAP. Research short trigger."
+)
+
+alertcondition(
+     shortExitEvent,
+     title = "EXIT-1 — Opening Fade",
+     message = "EXIT-1 | {{ticker}} | Opening Fade target or bullish EMA9/VWAP reclaim triggered."
+)
+
+
+// ============================================================
+// 22C. DASHBOARD ACTION TEXT
+//
+// Avoid ambiguous dashes for sizing:
+// - ARMED      -> show actionable share count
+// - IN TRADE   -> show the size that was recommended at entry
+// - otherwise  -> explicitly show WAIT
+// ============================================================
+
+string sharesDashboardText =
+     state == 3 or realtimePosition
+         ? (displayShares > 0 ? str.tostring(displayShares) : "BLOCKED")
+         : state == 4
+             ? (displayShares > 0 ? str.tostring(displayShares) : "—")
+             : "WAIT"
+
+string allowedRiskDashboardText =
+     state == 3 or realtimePosition or state == 4
+         ? (not na(displayAllowedRisk)
+             ? "$" + str.tostring(displayAllowedRisk, "#.##")
+             : "—")
+         : "WAIT"
+
+string qualityDashboardText =
+     state == 3 or realtimePosition or state == 4
+         ? displayQuality
+         : "WAIT"
+
+
+// ============================================================
+// 23. DASHBOARD
+// ============================================================
+
+var table dashboard =
+     table.new(
+         position.top_right,
+         2,
+         18,
+         border_width = 1
+     )
+
+if barstate.islast and showDashboard
+
+    string stateText =
+         realtimePosition
+             ? "IN TRADE"
+             : state == 0
+                 ? "SCANNING"
+                 : state == 1
+                     ? "IMPULSE"
+                     : state == 2
+                         ? "PULLBACK"
+                         : state == 3
+                             ? "ARMED"
+                             : state == 4
+                                 ? "IN TRADE"
+                                 : "COOLDOWN"
+
+    color stateColor =
+         realtimePosition
+             ? color.green
+             : state == 3
+                 ? color.orange
+                 : state == 4
+                     ? color.green
+                     : state == 5
+                         ? color.gray
+                         : color.blue
+
+    string retracementText =
+         not na(currentRetracement)
+             ? str.tostring(
+                 currentRetracement,
+                 "#.0"
+             ) + "%"
+             : "—"
+
+    string entryText =
+         not na(displayEntry)
+             ? str.tostring(
+                 displayEntry,
+                 format.mintick
+             )
+             : "—"
+
+    string stopText =
+         not na(displayStop)
+             ? str.tostring(
+                 displayStop,
+                 format.mintick
+             )
+             : "—"
+
+    string targetText =
+         not na(displayTarget)
+             ? str.tostring(
+                 displayTarget,
+                 format.mintick
+             )
+             : "—"
+
+    string riskText =
+         not na(effectiveDisplayRisk)
+             ? "$" +
+               str.tostring(
+                   effectiveDisplayRisk,
+                   "#.####"
+               )
+             : "—"
+
+
+    // Header
+    table.cell(
+         dashboard,
+         0,
+         0,
+         "MOMENTUM COPILOT",
+         bgcolor = color.black,
+         text_color = color.white
+    )
+
+    table.cell(
+         dashboard,
+         1,
+         0,
+         syminfo.ticker,
+         bgcolor = color.black,
+         text_color = color.white
+    )
+
+
+    table.cell(dashboard, 0, 1, "STATUS")
+    table.cell(
+         dashboard,
+         1,
+         1,
+         stateText,
+         bgcolor = stateColor,
+         text_color = color.white
+    )
+
+
+    table.cell(dashboard, 0, 2, "SESSION")
+    table.cell(
+         dashboard,
+         1,
+         2,
+         inSession ? "OPEN" : "BLOCKED",
+         bgcolor =
+             inSession
+                 ? color.new(color.green, 75)
+                 : color.new(color.red, 65)
+    )
+
+
+    table.cell(dashboard, 0, 3, "5M CONTEXT")
+    table.cell(
+         dashboard,
+         1,
+         3,
+         contextBullish
+             ? "BULLISH"
+             : "NOT BULLISH",
+         bgcolor =
+             contextBullish
+                 ? color.new(color.green, 75)
+                 : color.new(color.red, 80)
+    )
+
+
+    table.cell(dashboard, 0, 4, "ABOVE VWAP")
+    table.cell(
+         dashboard,
+         1,
+         4,
+         close > vwapValue
+             ? "YES"
+             : "NO"
+    )
+
+
+    table.cell(dashboard, 0, 5, "ABOVE EMA9")
+    table.cell(
+         dashboard,
+         1,
+         5,
+         close > ema9
+             ? "YES"
+             : "NO"
+    )
+
+
+    table.cell(dashboard, 0, 6, "VOLUME")
+    table.cell(
+         dashboard,
+         1,
+         6,
+         volumeStructureBullish
+             ? "GREEN > RED"
+             : "RED > GREEN"
+    )
+
+
+    table.cell(dashboard, 0, 7, "RETRACE")
+    table.cell(
+         dashboard,
+         1,
+         7,
+         retracementText
+    )
+
+    table.cell(dashboard, 0, 8, "SETUP QUALITY")
+    table.cell(
+         dashboard,
+         1,
+         8,
+         qualityDashboardText,
+         bgcolor =
+             displayQuality == "A+"
+                 ? color.new(color.green, 65)
+                 : displayQuality == "A"
+                     ? color.new(color.orange, 70)
+                     : color.new(color.gray, 85)
+    )
+
+    table.cell(dashboard, 0, 9, "ENTRY")
+    table.cell(
+         dashboard,
+         1,
+         9,
+         entryText
+    )
+
+    table.cell(dashboard, 0, 10, "STOP")
+    table.cell(
+         dashboard,
+         1,
+         10,
+         stopText
+    )
+
+    table.cell(
+         dashboard,
+         0,
+         11,
+         str.tostring(
+             rewardMultiple,
+             "#.##"
+         ) + "R"
+    )
+    table.cell(
+         dashboard,
+         1,
+         11,
+         targetText
+    )
+
+    table.cell(dashboard, 0, 12, "RISK / SHARE")
+    table.cell(
+         dashboard,
+         1,
+         12,
+         riskText
+    )
+
+    table.cell(dashboard, 0, 13, "ALLOWED RISK")
+    table.cell(
+         dashboard,
+         1,
+         13,
+         allowedRiskDashboardText
+    )
+
+    table.cell(dashboard, 0, 14, "MAX SHARES")
+    table.cell(
+         dashboard,
+         1,
+         14,
+         sharesDashboardText,
+         bgcolor =
+             state == 3 and displayShares > 0
+                 ? color.new(color.green, 68)
+                 : state == 4 and displayShares > 0
+                     ? color.new(color.green, 82)
+                     : color.new(color.gray, 88)
+    )
+
+    table.cell(dashboard, 0, 15, "POSITION VALUE")
+    table.cell(
+         dashboard,
+         1,
+         15,
+         state == 3 or realtimePosition or state == 4
+             ? (not na(displayPositionValue)
+                 ? "$" + str.tostring(displayPositionValue, "#.##")
+                 : "—")
+             : "WAIT"
+    )
+
+    table.cell(dashboard, 0, 16, "ACCOUNT EXPOSURE")
+    table.cell(
+         dashboard,
+         1,
+         16,
+         state == 3 or realtimePosition or state == 4
+             ? (not na(displayExposurePct)
+                 ? str.tostring(displayExposurePct, "#.0") + "%"
+                 : "—")
+             : "WAIT"
+    )
+
+    table.cell(dashboard, 0, 17, "BASE RISK")
+    table.cell(
+         dashboard,
+         1,
+         17,
+         "$" + str.tostring(baseRiskDollars, "#.##") +
+         " (" + str.tostring(baseRiskPct, "#.##") + "%)",
+         bgcolor = color.new(color.gray, 85)
+    )
+

@@ -1,0 +1,3 @@
+Ticker,Action,Shares,Fill Price,Execution Time
+GOOG,BUY,10,140.50,2024-03-01 14:00:00-05:00
+GOOG,SELL,10,145.00,2024-03-01 15:00:00-05:00

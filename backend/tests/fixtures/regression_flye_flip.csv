@@ -1,0 +1,4 @@
+Symbol,Side,Type,Qty,Limit,Stop,Fill price,Status,Commission,Placing time,Closing time,Order ID,Trade #,Leverage,Value
+NASDAQ:FLYE,Buy,Market,100,,,2.29,Filled,,2026-09-01 10:24:18,2026-09-01 10:24:18,3477702597,,1x,229.00 USD
+NASDAQ:FLYE,Sell,Market,200,,,2.1,Filled,,2026-09-01 10:40:58,2026-09-01 10:40:58,3477830383,,1x,420.00 USD
+NASDAQ:FLYE,Buy,Market,100,,,2.1,Filled,,2026-09-01 10:41:48,2026-09-01 10:41:48,3477836339,,1x,210.00 USD

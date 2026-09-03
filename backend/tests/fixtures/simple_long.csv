@@ -1,0 +1,3 @@
+Symbol,Side,Quantity,Price,Date/Time
+AAPL,Buy,100,150.00,2024-01-15 09:30:00-05:00
+AAPL,Sell,100,155.00,2024-01-15 10:00:00-05:00

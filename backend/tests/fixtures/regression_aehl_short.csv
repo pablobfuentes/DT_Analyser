@@ -1,0 +1,3 @@
+Symbol,Side,Type,Qty,Limit,Stop,Fill price,Status,Commission,Placing time,Closing time,Order ID,Trade #,Leverage,Value
+NASDAQ:AEHL,Sell,Market,100,,,6.96,Filled,,2026-08-31 09:42:56,2026-08-31 09:42:57,3472329989,,1x,696.00 USD
+NASDAQ:AEHL,Buy,Market,100,,,6.89,Filled,,2026-08-31 09:45:00,2026-08-31 09:45:01,3472344754,,1x,689.00 USD
