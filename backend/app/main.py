@@ -28,6 +28,7 @@ from app.api import (
 from app.config import settings
 from app.db.init_data import initialize_app
 from app.importers.exceptions import ImporterError, TimezoneRequiredError
+from app.spa import mount_frontend
 
 logging.basicConfig(
     level=logging.INFO,
@@ -126,3 +127,6 @@ def on_shutdown():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+mount_frontend(app)

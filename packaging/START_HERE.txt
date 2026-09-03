@@ -1,0 +1,13 @@
+DT Analyser — how to use
+
+1. Double-click DT_Analyser.exe
+2. A black window opens. Leave it open.
+3. Your browser should open the app by itself.
+   If not, go to:  http://127.0.0.1:8765
+4. When you are done, close the black window.
+
+Your trades are saved on this computer only
+(folder:  %LOCALAPPDATA%\LocalTraderAnalyzer).
+
+Windows may warn that the app is unknown. Choose
+"More info" → "Run anyway" if that happens.

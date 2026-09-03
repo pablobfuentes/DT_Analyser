@@ -2,6 +2,17 @@
 
 A local-first trading journal and CSV importer inspired by Tradervue. Step 1 focuses on importing and normalizing TradingView CSV exports into a SQLite database.
 
+## Windows app (no Python / no terminal)
+
+For someone who should only double-click:
+
+1. You build `DT_Analyser.zip` once (see [packaging/WINDOWS.md](packaging/WINDOWS.md)), **or** run the **Windows .exe** GitHub Action and download the artifact.
+2. Send her that zip.
+3. She extracts the folder and double-clicks **DT_Analyser.exe**.
+4. A black window stays open; the browser opens the app. Closing the black window stops the app.
+
+Her data stays on her PC in `%LOCALAPPDATA%\LocalTraderAnalyzer`.
+
 ## Requirements
 
 - Python 3.12+
@@ -72,9 +83,10 @@ API docs: http://127.0.0.1:8001/docs
 
 ## Sharing this app
 
-This is a **local** app. The intended way to share it is: send the GitHub link, they clone, install, and run the two commands above. They open http://localhost:5173 on **their** computer.
+- **Not technical:** send `DT_Analyser.zip` (see [packaging/WINDOWS.md](packaging/WINDOWS.md)).
+- **Technical:** clone this repo and run backend + frontend as below. Each machine has its own database.
 
-No Netlify/Render account is needed. Optional cloud notes are in [Deployment](docs/DEPLOYMENT.md).
+Optional cloud notes: [Deployment](docs/DEPLOYMENT.md).
 
 ## Dashboard (Step 2)
 
