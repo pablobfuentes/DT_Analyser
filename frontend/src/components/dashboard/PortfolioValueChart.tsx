@@ -27,9 +27,14 @@ interface DayPoint {
   value: number;
 }
 
-type Seg = { color: string; points: DayPoint[] };
+/** Point on the plot; xIndex may be fractional when crossing start between days. */
+interface PlotPoint {
+  xIndex: number;
+  value: number;
+}
 
-/** Last equity reading per calendar day, then last 30 days. */
+type Seg = { color: string; points: PlotPoint[] };
+
 function dailyPortfolio(series: EquityPoint[]): DayPoint[] {
   const byDate = new Map<string, number>();
   for (const p of series) {
@@ -55,30 +60,38 @@ function themeColors() {
   };
 }
 
-/** One continuous path, split into colored segments only when crossing start. */
+/**
+ * Build colored path segments. When equity crosses start between day i-1 and i,
+ * the color change happens mid-edge (interpolated), never as a vertical jump on a day.
+ */
 function colorSegments(rows: DayPoint[], start: number | null, profit: string, loss: string): Seg[] {
   if (!rows.length) return [];
   if (start == null || !(start > 0)) {
-    return [{ color: profit, points: rows.map((r) => ({ ...r })) }];
+    return [{ color: profit, points: rows.map((r, i) => ({ xIndex: i, value: r.value })) }];
   }
 
   const segments: Seg[] = [];
   let side: 'above' | 'below' = rows[0].value >= start ? 'above' : 'below';
-  let current: DayPoint[] = [{ ...rows[0] }];
+  let current: PlotPoint[] = [{ xIndex: 0, value: rows[0].value }];
 
   for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1];
     const cur = rows[i];
     const curSide: 'above' | 'below' = cur.value >= start ? 'above' : 'below';
 
     if (curSide === side) {
-      current.push({ ...cur });
+      current.push({ xIndex: i, value: cur.value });
       continue;
     }
 
-    const cross: DayPoint = { date: cur.date, value: start };
+    const delta = cur.value - prev.value;
+    const t = Math.abs(delta) < 1e-12 ? 0.5 : (start - prev.value) / delta;
+    const clamped = Math.min(1, Math.max(0, t));
+    const cross: PlotPoint = { xIndex: i - 1 + clamped, value: start };
+
     current.push(cross);
     segments.push({ color: side === 'above' ? profit : loss, points: current });
-    current = [cross, { ...cur }];
+    current = [cross, { xIndex: i, value: cur.value }];
     side = curSide;
   }
 
@@ -86,16 +99,32 @@ function colorSegments(rows: DayPoint[], start: number | null, profit: string, l
   return segments;
 }
 
+function xPixel(
+  xIndex: number,
+  dates: string[],
+  scale: (v: string) => number,
+): number {
+  const left = Math.floor(xIndex);
+  const right = Math.ceil(xIndex);
+  if (left === right || right >= dates.length) {
+    return scale(dates[Math.min(left, dates.length - 1)]);
+  }
+  const frac = xIndex - left;
+  return scale(dates[left]) + frac * (scale(dates[right]) - scale(dates[left]));
+}
+
 function SegmentPaths({
+  dates,
   segments,
   xAxisMap,
   yAxisMap,
 }: {
+  dates: string[];
   segments: Seg[];
   xAxisMap?: Record<string, { scale: (v: string) => number }>;
   yAxisMap?: Record<string, { scale: (v: number) => number }>;
 }) {
-  if (!xAxisMap || !yAxisMap) return null;
+  if (!xAxisMap || !yAxisMap || !dates.length) return null;
   const xAxis = Object.values(xAxisMap)[0];
   const yAxis = Object.values(yAxisMap)[0];
   if (!xAxis?.scale || !yAxis?.scale) return null;
@@ -106,12 +135,22 @@ function SegmentPaths({
         if (seg.points.length === 1) {
           const p = seg.points[0];
           return (
-            <circle key={idx} cx={xAxis.scale(p.date)} cy={yAxis.scale(p.value)} r={3} fill={seg.color} />
+            <circle
+              key={idx}
+              cx={xPixel(p.xIndex, dates, xAxis.scale)}
+              cy={yAxis.scale(p.value)}
+              r={3}
+              fill={seg.color}
+            />
           );
         }
         if (seg.points.length < 2) return null;
         const d = seg.points
-          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xAxis.scale(p.date)} ${yAxis.scale(p.value)}`)
+          .map((p, i) => {
+            const x = xPixel(p.xIndex, dates, xAxis.scale);
+            const y = yAxis.scale(p.value);
+            return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+          })
           .join(' ');
         return (
           <path
@@ -138,6 +177,7 @@ export function PortfolioValueChart({ equitySeries, startingEquity }: Props) {
     () => colorSegments(rows, hasStart ? start : null, colors.profit, colors.loss),
     [rows, hasStart, start, colors.profit, colors.loss],
   );
+  const dates = useMemo(() => rows.map((r) => r.date), [rows]);
 
   if (!rows.length) {
     return (
@@ -180,7 +220,6 @@ export function PortfolioValueChart({ equitySeries, startingEquity }: Props) {
               label={{ value: 'Start', fill: colors.muted, fontSize: 11, position: 'insideTopRight' }}
             />
           )}
-          {/* Invisible series keeps tooltip / hover working */}
           <Line
             type="monotone"
             dataKey="value"
@@ -193,7 +232,12 @@ export function PortfolioValueChart({ equitySeries, startingEquity }: Props) {
           <Customized
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             component={(props: any) => (
-              <SegmentPaths segments={segments} xAxisMap={props.xAxisMap} yAxisMap={props.yAxisMap} />
+              <SegmentPaths
+                dates={dates}
+                segments={segments}
+                xAxisMap={props.xAxisMap}
+                yAxisMap={props.yAxisMap}
+              />
             )}
           />
         </LineChart>
