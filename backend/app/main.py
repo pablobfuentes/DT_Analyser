@@ -25,6 +25,7 @@ from app.api import (
     trades,
     workflow,
 )
+from app.config import settings
 from app.db.init_data import initialize_app
 from app.importers.exceptions import ImporterError, TimezoneRequiredError
 
@@ -38,7 +39,7 @@ app = FastAPI(title="Local Trader Analyzer", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.resolved_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,7 +88,7 @@ async def importer_error_handler(_request, exc: ImporterError):
 @app.on_event("startup")
 def on_startup():
     initialize_app()
-    if "pytest" not in sys.modules:
+    if "pytest" not in sys.modules and not settings.disable_automation:
         from app.services.automation.ownership import try_acquire_automation_ownership
         from app.services.automation.scheduler import start_scheduler
         from app.services.automation.watcher import start_watcher
@@ -102,12 +103,14 @@ def on_startup():
                 "STANDBY: another process owns automation for this data directory. "
                 "HTTP is available; watcher/worker/scheduler will not start."
             )
+    elif settings.disable_automation:
+        logger.info("Automation disabled (LTA_DISABLE_AUTOMATION=true)")
     logger.info("Local Trader Analyzer started")
 
 
 @app.on_event("shutdown")
 def on_shutdown():
-    if "pytest" not in sys.modules:
+    if "pytest" not in sys.modules and not settings.disable_automation:
         from app.services.automation.ownership import is_automation_owner, release_automation_ownership
         from app.services.automation.scheduler import stop_scheduler
         from app.services.automation.watcher import stop_watcher

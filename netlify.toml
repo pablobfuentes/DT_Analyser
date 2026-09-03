@@ -3,8 +3,12 @@
   command = "npm ci && npm run build"
   publish = "dist"
 
-# SPA: send all routes to index.html so React Router handles them.
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# SPA + API proxy rules are generated at build time in frontend/public/_redirects
+# (see frontend/scripts/prebuild.mjs). Set BACKEND_URL in Netlify env vars.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

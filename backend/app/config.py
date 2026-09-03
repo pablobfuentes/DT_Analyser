@@ -59,9 +59,23 @@ class Settings(BaseSettings):
     research_statistics_version: str = "1"
     research_heatmap_ticker_top_n: int = 20
 
+    # Deployment
+    cors_origins: str = ""
+    disable_automation: bool = False
+
     @property
     def sync_database_url(self) -> str:
         return self.database_url
+
+    def resolved_cors_origins(self) -> list[str]:
+        if self.cors_origins.strip():
+            return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
 
 
 settings = Settings()

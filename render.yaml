@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: dt-analyser-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: LTA_DATA_DIR
+        value: /var/data
+      - key: LTA_DATABASE_URL
+        value: sqlite:////var/data/trader_analyzer.db
+      - key: LTA_DISABLE_AUTOMATION
+        value: "true"
+      - key: LTA_CORS_ORIGINS
+        sync: false
+    disk:
+      name: dt-analyser-data
+      mountPath: /var/data
+      sizeGB: 1

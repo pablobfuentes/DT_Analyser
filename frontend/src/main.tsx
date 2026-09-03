@@ -18,6 +18,7 @@ import { DailyReviewPage } from './pages/DailyReviewPage';
 import { WeeklyReviewPage } from './pages/WeeklyReviewPage';
 import { ReviewHistoryPage } from './pages/ReviewHistoryPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ApiStatusBanner } from './components/ApiStatusBanner';
 import './index.css';
 
 function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
@@ -35,6 +36,7 @@ function NavItem({ to, children }: { to: string; children: React.ReactNode }) {
 function App() {
   return (
     <BrowserRouter>
+      <ApiStatusBanner />
       <nav className="app-nav">
         <strong>Local Trader Analyzer</strong>
         <NavItem to="/">Dashboard</NavItem>

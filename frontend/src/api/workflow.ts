@@ -1,13 +1,4 @@
-const API = '/api';
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, options);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw err;
-  }
-  return res.json();
-}
+import { apiRequest as request } from './base';
 
 export const workflowApi = {
   status: (date?: string) => request<Record<string, unknown>>(`/workflow/status${date ? `?date=${date}` : ''}`),

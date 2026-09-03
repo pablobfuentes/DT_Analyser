@@ -2,7 +2,7 @@ import type { DashboardData } from '../types/dashboard';
 import type { DashboardFiltersState } from '../types/dashboard';
 import { filtersToQueryParams } from '../utils/dates';
 
-const API_BASE = '/api';
+import { API_BASE } from './base';
 
 export async function fetchDashboard(filters: DashboardFiltersState): Promise<DashboardData> {
   const params = new URLSearchParams();

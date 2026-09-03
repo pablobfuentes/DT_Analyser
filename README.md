@@ -55,7 +55,7 @@ Default accounts seeded:
 Start the backend (from `backend/` with venv activated):
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8001
 ```
 
 Start the frontend (from `frontend/`):
@@ -66,7 +66,11 @@ npm run dev
 
 Open http://localhost:5173
 
-API docs: http://127.0.0.1:8000/docs
+API docs: http://127.0.0.1:8001/docs
+
+## Deploying (Netlify + Render)
+
+The web UI deploys to **Netlify**; the API deploys to **Render** (Docker + SQLite on a persistent disk). See [Deployment](docs/DEPLOYMENT.md) for step-by-step setup and required environment variables (`BACKEND_URL` on Netlify, `LTA_CORS_ORIGINS` on Render).
 
 ## Dashboard (Step 2)
 

@@ -2,7 +2,7 @@ import type { GraphFiltersState } from '../utils/graphFilters';
 import { graphFiltersToQueryParams } from '../utils/graphFilters';
 import type { ReportsResponse } from '../types/reports';
 
-const API_BASE = '/api';
+import { API_BASE } from './base';
 
 export async function fetchReports(filters: GraphFiltersState): Promise<ReportsResponse> {
   const params = new URLSearchParams();

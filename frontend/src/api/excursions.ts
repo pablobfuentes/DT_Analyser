@@ -1,16 +1,7 @@
 import type { DashboardFiltersState } from '../types/dashboard';
 import { filtersToQueryParams } from '../utils/dates';
 
-const API_BASE = '/api';
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, options);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw err;
-  }
-  return res.json();
-}
+import { apiRequest as request } from './base';
 
 export interface ExcursionCoverage {
   total_closed_trades: number;

@@ -1,13 +1,4 @@
-const API_BASE = '/api';
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, options);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw err;
-  }
-  return res.json();
-}
+import { API_BASE, apiRequest as request } from './base';
 
 export interface Account {
   id: number;
@@ -276,7 +267,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   researchExport: (kind: string, body: Record<string, unknown>) =>
-    fetch(`/api/research/export/${kind}`, {
+    fetch(`${API_BASE}/research/export/${kind}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
