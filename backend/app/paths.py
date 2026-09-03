@@ -1,31 +1,25 @@
 """Resolve the application data directory and well-known subfolders.
 
 Production paths come from LTA_DATA_DIR. Existing ./data installs are preserved.
+User overrides live in app_paths.json (see path_config).
 """
 
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
 from app.config import settings
+from app.path_config import load_path_config, platform_default_data_dir
 
 SUBDIRS = ("inbox", "archive", "quarantine", "screenshots", "backups", "logs", "paste", "uploads")
-
-
-def platform_default_data_dir() -> Path:
-    if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(base) / "LocalTraderAnalyzer"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "LocalTraderAnalyzer"
-    return Path.home() / ".local" / "share" / "local-trader-analyzer"
 
 
 def resolve_data_dir() -> Path:
     if settings.data_dir is not None:
         return Path(settings.data_dir).expanduser().resolve()
+    cfg = load_path_config()
+    if cfg.get("data_dir"):
+        return Path(cfg["data_dir"]).expanduser().resolve()
     cwd_data = Path("./data")
     if cwd_data.exists():
         return cwd_data.resolve()
@@ -34,9 +28,14 @@ def resolve_data_dir() -> Path:
 
 def data_layout(root: Path | None = None) -> dict[str, Path]:
     base = root or resolve_data_dir()
+    cfg = load_path_config()
     layout = {"root": base}
     for name in SUBDIRS:
-        layout[name] = base / name
+        override = cfg.get(name)
+        if override:
+            layout[name] = Path(override).expanduser().resolve()
+        else:
+            layout[name] = base / name
     return layout
 
 

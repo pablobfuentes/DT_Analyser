@@ -4,21 +4,43 @@ import { settingsApi } from '../api/workflow';
 const INPUTS = ['ORDER_HISTORY', 'PINE_LOG', 'ACTIVITY_LOG', 'AUTO_STRATEGY_TESTER'] as const;
 const POLICIES = ['REQUIRED', 'RECOMMENDED', 'OPTIONAL', 'DISABLED'];
 
+const PATH_FIELDS: { key: string; label: string; trading?: boolean; hint?: string }[] = [
+  {
+    key: 'data_dir',
+    label: 'Trading data directory',
+    trading: true,
+    hint: 'SQLite database, screenshots, inbox, and backups live under this folder unless overridden below. Restart after changing.',
+  },
+  { key: 'inbox', label: 'Inbox', hint: 'Drop CSVs / Pine logs here for automation' },
+  { key: 'archive', label: 'Archive' },
+  { key: 'screenshots', label: 'Screenshots' },
+  { key: 'backups', label: 'Backups' },
+  { key: 'logs', label: 'Logs' },
+  { key: 'quarantine', label: 'Quarantine' },
+];
+
 export function SettingsPage() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [prefs, setPrefs] = useState<Record<string, unknown>>({});
+  const [paths, setPaths] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     settingsApi.get().then((d) => {
       setData(d);
       setPrefs((d.preferences as Record<string, unknown>) || {});
+      const p = (d.paths || {}) as Record<string, string>;
+      const next: Record<string, string> = {};
+      for (const f of PATH_FIELDS) {
+        next[f.key] = String(p[f.key] || '');
+      }
+      setPaths(next);
     });
   }, []);
 
   if (!data) return <p>Loading…</p>;
-  const paths = (data.paths || {}) as Record<string, string>;
   const expected = (prefs.expected_inputs || {}) as Record<string, string>;
+  const database = String((data.paths as Record<string, string>)?.database || '');
 
   const save = async () => {
     const res = await settingsApi.patch({
@@ -30,23 +52,50 @@ export function SettingsPage() {
       backup_retain_weekly: Number(prefs.backup_retain_weekly),
       notifications: prefs.notifications,
       expected_inputs: expected,
+      paths,
     });
     setPrefs((res.preferences as Record<string, unknown>) || prefs);
-    setMsg('Saved. Secrets remain environment-only.');
+    const p = (res.paths || {}) as Record<string, string>;
+    const next: Record<string, string> = {};
+    for (const f of PATH_FIELDS) {
+      next[f.key] = String(p[f.key] || paths[f.key] || '');
+    }
+    setPaths(next);
+    setData({ ...data, paths: res.paths });
+    if (res.restart_required) {
+      setMsg(String(res.note || 'Restart the app to use the new trading data directory.'));
+    } else {
+      setMsg('Saved. Secrets remain environment-only.');
+    }
   };
 
   return (
     <div>
       <h2>Settings</h2>
       <p className="text-secondary">{String(data.secrets_note)}</p>
+
       <h3 className="section-title">Data locations</h3>
-      <ul>
-        {Object.entries(paths).map(([k, v]) => (
-          <li key={k}>
-            <strong>{k}:</strong> {v}
-          </li>
-        ))}
-      </ul>
+      <p className="text-secondary">
+        Paste full folder paths. Leave a subfolder blank and it stays under the trading data directory.
+      </p>
+      {PATH_FIELDS.map((f) => (
+        <div key={f.key} className={`path-field${f.trading ? ' trading-data' : ''}`}>
+          <label htmlFor={`path-${f.key}`}>{f.label}</label>
+          <input
+            id={`path-${f.key}`}
+            value={paths[f.key] || ''}
+            onChange={(e) => setPaths({ ...paths, [f.key]: e.target.value })}
+            placeholder={f.trading ? 'e.g. D:\\Trading\\DT_Analyser' : 'Optional override'}
+          />
+          {f.trading && database && (
+            <div className="hint">
+              Database file: <code>{database}</code>
+            </div>
+          )}
+          {f.hint && <div className="hint">{f.hint}</div>}
+        </div>
+      ))}
+
       <h3 className="section-title">Automation</h3>
       <label>
         <input

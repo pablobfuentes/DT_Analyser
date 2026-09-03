@@ -17,13 +17,15 @@ URL = f"http://{HOST}:{PORT}"
 def _prepare_data_dir() -> None:
     if os.environ.get("LTA_DATA_DIR"):
         return
-    if sys.platform == "win32":
-        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        data = Path(base) / "LocalTraderAnalyzer"
+    from app.path_config import load_path_config, platform_default_data_dir
+
+    cfg = load_path_config()
+    if cfg.get("data_dir"):
+        data = Path(cfg["data_dir"]).expanduser()
     else:
-        data = Path.home() / ".local" / "share" / "local-trader-analyzer"
+        data = platform_default_data_dir()
     data.mkdir(parents=True, exist_ok=True)
-    os.environ["LTA_DATA_DIR"] = str(data)
+    os.environ["LTA_DATA_DIR"] = str(data.resolve())
     db = data / "trader_analyzer.db"
     os.environ.setdefault("LTA_DATABASE_URL", f"sqlite:///{db.resolve().as_posix()}")
 

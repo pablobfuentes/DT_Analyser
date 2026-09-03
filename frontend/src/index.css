@@ -11,6 +11,7 @@
   --manual: #6cb6ff;
   --auto: #d2a8ff;
   --accent: #539bf5;
+  --sidebar-width: 200px;
 }
 
 * {
@@ -35,34 +36,61 @@ a:hover {
   text-decoration: underline;
 }
 
-.app-nav {
+.app-shell {
   display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
   background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 1rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
 }
 
-.app-nav strong {
-  font-size: 1rem;
-  margin-right: auto;
+.app-sidebar .brand {
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0.35rem 0.75rem 1rem;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
 }
 
-.app-nav a {
+.app-sidebar a {
   color: var(--text-secondary);
   font-weight: 500;
+  padding: 0.45rem 0.75rem;
+  border-radius: 4px;
+  display: block;
+  text-decoration: none;
 }
 
-.app-nav a.active,
-.app-nav a:hover {
+.app-sidebar a:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  text-decoration: none;
 }
 
-main {
-  padding: 1rem 1.5rem 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
+.app-sidebar a.active {
+  color: var(--text-primary);
+  background: rgba(83, 155, 245, 0.15);
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  padding: 1rem 1.25rem 2rem;
+  width: 100%;
+  max-width: none;
 }
 
 .card {
@@ -115,6 +143,58 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 0.75rem;
   margin-bottom: 1.5rem;
+}
+
+.dashboard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.8fr;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-hero .metric-value {
+  font-size: 1.75rem;
+}
+
+.dashboard-hero-main .metric-value {
+  font-size: 2rem;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-layout {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-hero {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    flex-direction: column;
+  }
+  .app-sidebar {
+    width: 100%;
+    height: auto;
+    position: relative;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .app-sidebar .brand {
+    width: 100%;
+    padding-bottom: 0.5rem;
+  }
+  .dashboard-hero {
+    grid-template-columns: 1fr;
+  }
 }
 
 .filters-bar {
@@ -181,6 +261,10 @@ th {
   letter-spacing: 0.04em;
   color: var(--text-secondary);
   margin: 1.5rem 0 0.75rem;
+}
+
+.section-title:first-child {
+  margin-top: 0.5rem;
 }
 
 .warning-banner {
@@ -280,6 +364,81 @@ button.primary {
   cursor: not-allowed;
 }
 
+.collapsible {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  margin-bottom: 1rem;
+}
+
+.collapsible-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.collapsible-header:hover {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.collapsible-body {
+  padding: 0 1rem 1rem;
+  overflow-x: auto;
+}
+
+.path-field {
+  margin-bottom: 0.85rem;
+}
+
+.path-field label {
+  display: block;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.path-field input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 0.5rem 0.65rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.path-field.trading-data {
+  background: rgba(83, 155, 245, 0.08);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+}
+
+.path-field.trading-data label {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.path-field .hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 0.35rem;
+}
+
 .graphs-page-header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.5rem;
@@ -330,7 +489,7 @@ button.primary {
 
 .graphs-toolbar {
   position: sticky;
-  top: 48px;
+  top: 0;
   z-index: 15;
   background: var(--bg-primary);
   padding: 0.5rem 0 0.75rem;
