@@ -7,6 +7,9 @@ import { ImportPreviewPanel } from '../components/ImportPreview';
 const TZ_OPTIONS = ['America/New_York', 'America/Mexico_City', 'UTC'];
 
 function formatImportError(e: unknown): string {
+  if (e instanceof TypeError) {
+    return `Network error: ${e.message}. Is the backend running on port 8001?`;
+  }
   if (e && typeof e === 'object' && 'detail' in e) {
     const detail = (e as { detail: unknown }).detail;
     if (typeof detail === 'string') return detail;
@@ -18,6 +21,7 @@ function formatImportError(e: unknown): string {
       }
     }
   }
+  if (e instanceof Error) return e.message;
   return JSON.stringify(e);
 }
 
