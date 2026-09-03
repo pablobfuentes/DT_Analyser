@@ -11,9 +11,11 @@ A local-first trading journal and CSV importer inspired by Tradervue. Step 1 foc
 ## Installation
 
 ```bash
-git clone <repo-url>
-cd local-trader-analyzer
+git clone https://github.com/pablobfuentes/DT_Analyser.git
+cd DT_Analyser
 ```
+
+Someone else can clone the same repo and run it on their machine. Each install gets its **own empty SQLite database** (`backend/data/` is not in Git). Trades, screenshots, and backups are not shared unless you copy that folder.
 
 ### Backend
 
@@ -68,9 +70,11 @@ Open http://localhost:5173
 
 API docs: http://127.0.0.1:8001/docs
 
-## Deploying (Netlify + Render)
+## Sharing this app
 
-The web UI deploys to **Netlify**; the API deploys to **Render** (Docker + SQLite on a persistent disk). See [Deployment](docs/DEPLOYMENT.md) for step-by-step setup and required environment variables (`BACKEND_URL` on Netlify, `LTA_CORS_ORIGINS` on Render).
+This is a **local** app. The intended way to share it is: send the GitHub link, they clone, install, and run the two commands above. They open http://localhost:5173 on **their** computer.
+
+No Netlify/Render account is needed. Optional cloud notes are in [Deployment](docs/DEPLOYMENT.md).
 
 ## Dashboard (Step 2)
 
